@@ -43,7 +43,7 @@ formatting with clang-format. Note that we do not use the Qt GUI framework
 in our code.
 
 Download and install **a recent version** QtCreator. You can follow the installation guide [here](https://wiki.qt.io/Install_Qt_5_on_Ubuntu)
-> ```
+
 > On Ubuntu 18.04, the system cmake version doesn't satisfy the minimum requirement for QtCreator 4.14. 
 > You should install a recent release of cmake via pip (install pip with `sudo apt install python3-pip` if missing):
 > ```

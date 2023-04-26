@@ -42,26 +42,7 @@ projects, syntax highlighting, interactive debugging and automatic
 formatting with clang-format. Note that we do not use the Qt GUI framework
 in our code.
 
-Download and install **a recent version** QtCreator.
-We recommend to go for the latest release (currently 4.14), but it should be at least 4.8.
-The default version shipping with Ubuntu 18.04 is out of date. 
-You will also need `clang-format`.
-
-> **Note:** On the lab PCs, everyting should be preinstalled. If not, ask your instructors to run
-> ```
-> sudo apt install qtcreator-4.14 clang-format
-> ```
-> You can start this version of QtCreator from the terminal with the command `qtcreator-4.14`.
-> Make sure to not by accident start the default version that comes with Ubuntu.
-
-> **Note:** For your own PC with Linux, you can download and install QtCreator as follows.
-> Recently, the installer started to require setting up a Qt account.
-> We don't need the Qt account for anything after installation.
->
-> ```
-> wget https://download.qt.io/official_releases/qtcreator/4.14/4.14.2/qt-creator-opensource-linux-x86_64-4.14.2.run
-> chmod +x qt-creator-opensource-linux-x86_64-4.14.2.run
-> ./qt-creator-opensource-linux-x86_64-4.14.2.run
+Download and install **a recent version** QtCreator. You can follow the installation guide [here](https://wiki.qt.io/Install_Qt_5_on_Ubuntu)
 > ```
 > On Ubuntu 18.04, the system cmake version doesn't satisfy the minimum requirement for QtCreator 4.14. 
 > You should install a recent release of cmake via pip (install pip with `sudo apt install python3-pip` if missing):

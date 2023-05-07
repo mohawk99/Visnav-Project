@@ -45,7 +45,7 @@ Eigen::Matrix<T, 3, 3> user_implemented_expmap(
   // TODO SHEET 1: implement
 
   Eigen::Matrix<T, 3, 1> theta = abs(xi);
-  Eigen::Matrix3d expS = Eigen::Matrix3d::Identity() + (xi / theta) * sin(theta) + (xi * xi) / (theta * theta) * (1 - cos(theta)); 
+  Eigen::Matrix3d expS = Eigen::Matrix3d::Identity() + (xi / theta) * sin(theta) + (xi * xi) / (theta * theta) * (Eigen::Matrix3d::Identity() - cos(theta)); 
 
 
  // UNUSED(xi);

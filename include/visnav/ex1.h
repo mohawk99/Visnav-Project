@@ -133,9 +133,13 @@ Eigen::Matrix<T, 6, 1> user_implemented_logmap(
   w_hat(1, 2) = w(0);
   w_hat(2, 1) = -w(0);
   Eigen::Matrix3d J_inv = Eigen::Matrix3d::Identity() - (w_hat/2) + ((1/(theta*theta)) - (((1 + cos(theta))/(2*theta*sin(theta)))) * (w_hat * w_hat));
-  
+  Eigen::Matrix<T, 3, 1> v = J_inv * t;
+  Eigen::Matrix<T, 6, 1> log;
+  log.block<3, 1>(0, 0) = v;
+  log.block<3, 1>(3, 0) = w;
+
   // UNUSED(mat);
-  return Eigen::Matrix<T, 6, 1>();
+  return log;
 }
 
 }  // namespace visnav

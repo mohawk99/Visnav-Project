@@ -44,7 +44,7 @@ Eigen::Matrix<T, 3, 3> user_implemented_expmap(
     const Eigen::Matrix<T, 3, 1>& xi) {
   // TODO SHEET 1: implement
 
-  Eigen::Matrix3d w_hat;
+  Eigen::Matrix<T, 3, 3> w_hat;
   w_hat.setZero();
   w_hat(0, 1) = xi(2);
   w_hat(1, 0) = -xi(2);
@@ -53,7 +53,9 @@ Eigen::Matrix<T, 3, 3> user_implemented_expmap(
   w_hat(1, 2) = xi(0);
   w_hat(2, 1) = -xi(0);
   double theta = xi.norm();
-  Eigen::Matrix3d expS = Eigen::Matrix3d::Identity() + (w_hat / theta) * sin(theta) + (w_hat * w_hat) / (theta * theta) * (1 - cos(theta)); 
+  Eigen::Matrix<T, 3, 3> I;
+  I.setIdentity();
+  Eigen::Matrix<T, 3, 3> expS = I + ((w_hat / theta) * sin(theta)) + (((w_hat * w_hat) / (theta * theta)) * (1 - cos(theta))); 
 
 
  // UNUSED(xi);
@@ -65,12 +67,12 @@ template <class T>
 Eigen::Matrix<T, 3, 1> user_implemented_logmap(
     const Eigen::Matrix<T, 3, 3>& mat) {
   // TODO SHEET 1: implement
-  float theta = acos((mat[1][1]+mat[2][2]+mat[3][3] - 1)/2);
+  float theta = acos((mat(0,0)+mat(1,1)+mat(2,2) - 1)/2);
   float k = (theta/(2*sin(theta)));
   Eigen::Matrix<T, 3, 1> log;
-  log[1][1] = (mat[3][2] - mat[2][3])/k;
-  log[2][1] = (mat[1][3] - mat[3][1])/k;
-  log[3][1] = (mat[2][1] - mat[1][2])/k;
+  log(0,0) = (mat(2,1) - mat(1,2))/k;
+  log(1,1) = (mat(0,2) - mat(2,0))/k;
+  log(2,2) = (mat(1,0) - mat(0,1))/k;
  // UNUSED(mat);
   return log;
 }
@@ -82,11 +84,11 @@ Eigen::Matrix<T, 4, 4> user_implemented_expmap(
   // TODO SHEET 1: implement
   Eigen::Matrix<T, 3, 1> w;
   Eigen::Matrix<T, 3, 1> v;
-  for(i=1; i<4; i++){
-    v[i][1] = xi[i][1]; 
+  for(int i=1; i<4; i++){
+    v(i-1,0) = xi(i-1,0); 
   }
-  for(i=1; i<4; i++){
-    w[i][1] = xi[i+3][1]; 
+  for(int i=1; i<4; i++){
+    w(i-1,0) = xi(i+2,0); 
   }
   Eigen::Matrix3d w_hat;
   w_hat.setZero();
@@ -97,14 +99,15 @@ Eigen::Matrix<T, 4, 4> user_implemented_expmap(
   w_hat(1, 2) = w(0);
   w_hat(2, 1) = -w(0);
   double theta = w.norm();
-  Eigen::Matrix3d exp = Eigen::Matrix3d::Identity() + (w_hat / theta) * sin(theta) + (w_hat * w_hat) / (theta * theta) * (1 - cos(theta));
-  Eigen::Matrix3d J = Eigen::Matrix3d::Identity() + w_hat / (theta * theta) * (1 - cos(theta)) + ((w_hat * w_hat)/(theta * theta * theta)) * (theta - sin(theta));
+  Eigen::Matrix<T, 3, 3> exp = Eigen::Matrix3d::Identity() + (w_hat / theta) * sin(theta) + (w_hat * w_hat) / (theta * theta) * (1 - cos(theta));
+  Eigen::Matrix<T, 3, 3> J = Eigen::Matrix3d::Identity() + w_hat / (theta * theta) * (1 - cos(theta)) + ((w_hat * w_hat)/(theta * theta * theta)) * (theta - sin(theta));
   Eigen::Matrix<T, 3, 1> jv = J * v;
   Eigen::Matrix<T, 4, 4> expS;
-  expS.block<3, 3>(0, 0) = exp;
-  expS.block<3, 1>(0, 3) = jv;
-  exps[4][1] = exps[4][2] = exps[4][3] = 0;
-  exps[4][4] = 1;
+  expS.setIdentity(); 
+  expS.template block<3, 3>(0, 0) = exp;
+  expS.template block<3, 1>(0, 3) = jv;
+  // expS[4][1] = expS[4][2] = expS[4][3] = 0;
+  // expS[4][4] = 1;
 
 
  // UNUSED(xi);
@@ -116,15 +119,17 @@ template <class T>
 Eigen::Matrix<T, 6, 1> user_implemented_logmap(
     const Eigen::Matrix<T, 4, 4>& mat) {
   // TODO SHEET 1: implement
-  Eigen::Matrix3d R = mat.block<3, 3>(0, 0);
-  Eigen::Matrix3d t = mat.block<3, 1>(0, 3);
-  float theta = acos((R[1][1]+R[2][2]R[3][3] - 1)/2);
+  Eigen::Matrix<T, 3, 3> R;
+  R = mat.template block<3, 3>(0, 0);
+  Eigen::Matrix<T, 3, 1> t;
+  t = mat.template block<3, 1>(0, 3);
+  float theta = acos((R(0,0)+R(1,1)+R(2,2) - 1)/2);
   float k = (theta/(2*sin(theta)));
   Eigen::Matrix<T, 3, 1> w;
-  w[1][1] = (R[3][2] - R[2][3])/k;
-  w[2][1] = (R[1][3] - R[3][1])/k;
-  w[3][1] = (R[2][1] - R[1][2])/k;
-  Eigen::Matrix3d w_hat;
+  w(0,0) = (R(2,1) - R(1,2))/k;
+  w(1,0) = (R(0,2) - R(2,0))/k;
+  w(2,0) = (R(1,0) - R(0,1))/k;
+  Eigen::Matrix<T, 3, 3> w_hat;
   w_hat.setZero();
   w_hat(0, 1) = w(2);
   w_hat(1, 0) = -w(2);
@@ -132,14 +137,14 @@ Eigen::Matrix<T, 6, 1> user_implemented_logmap(
   w_hat(2, 0) = -w(1);
   w_hat(1, 2) = w(0);
   w_hat(2, 1) = -w(0);
-  Eigen::Matrix3d J_inv = Eigen::Matrix3d::Identity() - (w_hat/2) + ((1/(theta*theta)) - ((1 + cos(theta))/(2*theta*sin(theta)))) * (w_hat * w_hat);
+  Eigen::Matrix<T, 3, 3> J_inv = Eigen::Matrix3d::Identity() - (w_hat/2) + ((1/(theta*theta)) - ((1 + cos(theta))/(2*theta*sin(theta)))) * (w_hat * w_hat);
   Eigen::Matrix<T, 3, 1> v = J_inv * t;
   Eigen::Matrix<T, 6, 1> log;
-  log.block<3, 1>(0, 0) = v;
-  log.block<3, 1>(3, 0) = w;
+  log.template block<3, 1>(0, 0) = v;
+  log.template block<3, 1>(3, 0) = w;
 
   // UNUSED(mat);
-  return log;
+  return log;   
 }
 
 }  // namespace visnav

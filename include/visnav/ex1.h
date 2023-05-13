@@ -46,12 +46,12 @@ Eigen::Matrix<T, 3, 3> user_implemented_expmap(
 
   Eigen::Matrix<T, 3, 3> w_hat;
   w_hat.setZero();
-  w_hat(0, 1) = xi(2);
-  w_hat(1, 0) = -xi(2);
+  w_hat(0, 1) = -xi(2);
+  w_hat(1, 0) = xi(2);
   w_hat(0, 2) = xi(1);
   w_hat(2, 0) = -xi(1);
-  w_hat(1, 2) = xi(0);
-  w_hat(2, 1) = -xi(0);
+  w_hat(1, 2) = -xi(0);
+  w_hat(2, 1) = xi(0);
   double theta = xi.norm();
   Eigen::Matrix<T, 3, 3> I;
   I.setIdentity();

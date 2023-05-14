@@ -134,8 +134,8 @@ Eigen::Matrix<T, 6, 1> user_implemented_logmap(
   R = mat.template block<3, 3>(0, 0);
   Eigen::Matrix<T, 3, 1> t;
   t = mat.template block<3, 1>(0, 3);
-  float theta = acos((R.trace() - 1.0)/2.0);
-  float k = (theta/(2*sin(theta)));
+  double theta = acos((R.trace() - 1.0)/2.0);
+  double k = (theta/(2*sin(theta)));
   Eigen::Matrix<T, 3, 1> w;
   w(0,0) = (R(2,1) - R(1,2)) * k;
   w(1,0) = (R(0,2) - R(2,0)) * k;

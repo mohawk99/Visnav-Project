@@ -348,11 +348,14 @@ void compute_projections() {
       // 3D coordinates of the aprilgrid corner in the world frame
       Eigen::Vector3d p_3d = aprilgrid.aprilgrid_corner_pos_3d[i];
 
+      Eigen::Vector3d p_c = T_i_c.inverse() * T_w_i.inverse() * p_3d;
+
       // TODO SHEET 2: project point
-      UNUSED(T_w_i);
-      UNUSED(T_i_c);
-      UNUSED(p_3d);
+      //  UNUSED(T_w_i);
+      //  UNUSED(T_i_c);
+      //  UNUSED(p_3d);
       Eigen::Vector2d p_2d;
+      p_2d = calib_cam.intrinsics.at(kv.first.cam_id)->project(p_c);
 
       ccd.corners.push_back(p_2d);
     }
@@ -366,6 +369,41 @@ void optimize() {
   ceres::Problem problem;
 
   // TODO SHEET 2: setup optimization problem
+  for (int i = 0; i < calib_cam.T_i_c.size(); ++i) {
+    problem.AddParameterBlock(calib_cam.T_i_c[i].data(),
+                              Sophus::SE3d::num_parameters,
+                              new Sophus::test::LocalParameterizationSE3);
+  }
+  problem.SetParameterBlockConstant(calib_cam.T_i_c[0].data());
+
+  for (int i = 0; i < vec_T_w_i.size(); ++i) {
+    problem.AddParameterBlock(vec_T_w_i[i].data(), Sophus::SE3d::num_parameters,
+                              new Sophus::test::LocalParameterizationSE3);
+  }
+
+  for (const auto& kv : calib_corners) {
+    for (int i = 0; i < kv.second.corners.size(); i++) {
+      int id = kv.second.corner_ids[i];
+      Eigen::Vector3d pos_3d = aprilgrid.aprilgrid_corner_pos_3d[id];
+
+      // std::cout<<pos_3d<<"\n";
+
+      Eigen::Vector2d pos_2d = kv.second.corners[i];
+      Sophus::SE3d T_w_i = vec_T_w_i[kv.first.frame_id];
+      Sophus::SE3d T_i_c = calib_cam.T_i_c[kv.first.cam_id];
+
+      ceres::CostFunction* cost_function =
+          new ceres::AutoDiffCostFunction<ReprojectionCostFunctor, 2,
+                                          Sophus::SE3d::num_parameters,
+                                          Sophus::SE3d::num_parameters, 8>(
+              new ReprojectionCostFunctor(pos_2d, pos_3d, cam_model));
+
+      problem.AddResidualBlock(cost_function, NULL,
+                               vec_T_w_i[kv.first.frame_id].data(),
+                               calib_cam.T_i_c[kv.first.cam_id].data(),
+                               calib_cam.intrinsics[kv.first.cam_id]->data());
+    }
+  }
 
   ceres::Solver::Options options;
   options.gradient_tolerance = 0.01 * Sophus::Constants<double>::epsilon();

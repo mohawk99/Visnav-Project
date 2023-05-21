@@ -412,19 +412,19 @@ class KannalaBrandt4Camera : public AbstractCamera<Scalar> {
     const Scalar& y = p[1];
     const Scalar& z = p[2];
 
-    Scalar r;
     Scalar t;
     Scalar d_t;
 
-    r = sqrt(x * x + y * y);
+    Scalar r = sqrt(x * x + y * y);
     t = atan2(r, z);
     d_t = t + k1 * t * t * t + k2 * t * t * t * t * t +
           k3 * t * t * t * t * t * t * t +
           k4 * t * t * t * t * t * t * t * t * t;
 
     Vec2 res;
-    res[0] = (fx * x * d_t) / r + cx;
-    res[1] = (fy * y * d_t) / r + cy;
+    r = (r == Scalar(0)) ? Scalar(1) : r;
+    res[0] = (fx * x * f_t(t, k1, k2, k3, k4)) / r + cx;
+    res[1] = (fy * y * f_t(t, k1, k2, k3, k4)) / r + cy;
 
     // TODO SHEET 2: implement camera model
     // UNUSED(fx);
@@ -474,8 +474,6 @@ class KannalaBrandt4Camera : public AbstractCamera<Scalar> {
     const Scalar& v = p[1];
     Scalar mx = Scalar(0);
     Scalar my = Scalar(0);
-    Scalar r = Scalar(1);
-    Scalar r_s = Scalar(0);
 
     if (fx != Scalar(0) && u != Scalar(0)) {
       mx = (u - cx) / fx;
@@ -484,9 +482,7 @@ class KannalaBrandt4Camera : public AbstractCamera<Scalar> {
       my = (v - cy) / fy;
     }
 
-    if (mx != Scalar(0) && my != Scalar(0)) {
-      r = sqrt(mx * mx + my * my);
-    }
+    Scalar r = sqrt(mx * mx + my * my);
 
     //    r = sqrt(mx*mx + my*my);
     Scalar t = M_PI / Scalar(2);
@@ -497,15 +493,10 @@ class KannalaBrandt4Camera : public AbstractCamera<Scalar> {
     }
 
     Vec3 res;
-    if (r != Scalar(0)) {
-      res[0] = (sin(t) * mx) / r;
-      res[1] = (sin(t) * my) / r;
 
-    } else {
-      res[0] = Scalar(0);
-      res[1] = Scalar(0);
-    }
-
+    r = (r == Scalar(0)) ? Scalar(1) : r;
+    res[0] = (sin(t) * mx) / r;
+    res[1] = (sin(t) * my) / r;
     res[2] = cos(t);
 
     // TODO SHEET 2: implement camera model

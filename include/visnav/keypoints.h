@@ -162,9 +162,22 @@ void computeAngles(const pangolin::ManagedImage<uint8_t>& img_raw,
 
     if (rotate_features) {
       // TODO SHEET 3: compute angle
-      UNUSED(img_raw);
-      UNUSED(cx);
-      UNUSED(cy);
+      int m01 = 0;
+      int m10 = 0;
+
+      for (int i = -15; i < 16; i++) {
+        for (int j = -15; j < 16; j++) {
+          if (((i * i) + (j * j)) <= 225) {
+            m01 += j * img_raw((cx + i), (cy + j));
+            m10 += i * img_raw((cx + i), (cy + j));
+          }
+        }
+      }
+
+      // UNUSED(img_raw);
+      // UNUSED(cx);
+      // UNUSED(cy);
+      angle = atan2(m01, m10);
     }
 
     kd.corner_angles[i] = angle;
@@ -185,10 +198,38 @@ void computeDescriptors(const pangolin::ManagedImage<uint8_t>& img_raw,
     const int cy = p[1];
 
     // TODO SHEET 3: compute descriptor
-    UNUSED(img_raw);
-    UNUSED(angle);
-    UNUSED(cx);
-    UNUSED(cy);
+
+    double cos = std::cos(angle);
+    double sin = std::sin(angle);
+
+    Eigen::Matrix<double, 2, 2> rotation;
+    rotation << cos, -(sin), sin, cos;
+
+    Eigen::Vector2d pa, pb, pa1, pb1;
+
+    int count = 0;
+
+    for (int j = 0; j < 256; j++) {
+      pa << (((int)pattern_31_x_a[j])), (((int)pattern_31_y_a[j]));
+      pb << (((int)pattern_31_x_b[j])), (((int)pattern_31_y_b[j]));
+      pa1 = p + (rotation * pa);
+      pb1 = p + (rotation * pb);
+
+      double p_a_prime_intensity =
+          (double)img_raw(round(pa1(0)), round(pa1(1)));
+      double p_b_prime_intensity =
+          (double)img_raw(round(pb1(0)), round(pb1(1)));
+
+      if (p_a_prime_intensity < p_b_prime_intensity) {
+        descriptor[j] = 1;
+      } else {
+        descriptor[j] = 0;
+      }
+    }
+    // UNUSED(img_raw);
+    // UNUSED(angle);
+    // UNUSED(cx);
+    // UNUSED(cy);
 
     kd.corner_descriptors[i] = descriptor;
   }
@@ -209,11 +250,55 @@ void matchDescriptors(const std::vector<std::bitset<256>>& corner_descriptors_1,
   matches.clear();
 
   // TODO SHEET 3: match features
-  UNUSED(corner_descriptors_1);
-  UNUSED(corner_descriptors_2);
-  UNUSED(matches);
-  UNUSED(threshold);
-  UNUSED(dist_2_best);
+  for (unsigned int i = 0; i < corner_descriptors_1.size(); i++) {
+    int dist1 = 257;
+    int dist2 = 257;
+    unsigned int ind = 0;
+
+    for (unsigned int j = 0; j < corner_descriptors_2.size(); j++) {
+      int curr_dist =
+          (corner_descriptors_1[i] ^ corner_descriptors_2[j]).count();
+      if (curr_dist < dist1) {
+        dist2 = dist1;
+        dist1 = curr_dist;
+        ind = j;
+      } else if (curr_dist < dist2) {
+        dist2 = curr_dist;
+      }
+    }
+
+    if ((dist1 >= threshold) || (dist2 < dist_2_best * dist1)) {
+      continue;
+    }
+
+    int dist3 = 257;
+    int dist4 = 257;
+    unsigned int ind2 = 0;
+
+    for (unsigned int k = 0; k < corner_descriptors_1.size(); k++) {
+      int curr_dist;
+      curr_dist = (corner_descriptors_1[k] ^ corner_descriptors_2[ind]).count();
+      if (curr_dist < dist3) {
+        dist4 = dist3;
+        dist3 = curr_dist;
+        ind2 = k;
+      } else if (curr_dist < dist4) {
+        dist4 = curr_dist;
+      }
+    }
+    if (dist3 >= threshold || dist4 < dist_2_best * dist3) {
+      continue;
+    }
+    if (ind2 == i) {
+      std::pair<int, int> match(ind2, ind);
+      matches.push_back(match);
+    }
+  }
+  // UNUSED(corner_descriptors_1);
+  // UNUSED(corner_descriptors_2);
+  // UNUSED(matches);
+  // UNUSED(threshold);
+  // UNUSED(dist_2_best);
 }
 
 }  // namespace visnav

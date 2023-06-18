@@ -139,8 +139,6 @@ void find_matches_landmarks(
     md.matches.push_back(std::make_pair(i, best_pind));
   }
 
-
-
   // UNUSED(kdl);
   // UNUSED(landmarks);
   // UNUSED(feature_corners);
@@ -214,7 +212,6 @@ void localize_camera(const Sophus::SE3d& current_pose,
     md.inliers.push_back(md.matches[i]);
   }
 
-
   // UNUSED(cam);
   // UNUSED(kdl);
   // UNUSED(landmarks);
@@ -285,7 +282,6 @@ void add_new_landmarks(const FrameCamId fcidl, const FrameCamId fcidr,
     ind++;
   }
 
-
   // UNUSED(fcidl);
   // UNUSED(fcidr);
   // UNUSED(kdl);
@@ -339,7 +335,6 @@ void remove_old_keyframes(const FrameCamId fcidl, const int max_num_kfs,
     cam_erased.clear();
     lm_erased.clear();
   }
-
 
   // UNUSED(max_num_kfs);
   // UNUSED(cameras);

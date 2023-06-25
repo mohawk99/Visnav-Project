@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 project(visnav)
-
+message("Compiler Version: ${CMAKE_CXX_COMPILER_VERSION}")
 # FindEigen3 (for opengv / Pangolin) and FindTBB
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/" ${CMAKE_MODULE_PATH})
 

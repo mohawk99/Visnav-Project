@@ -52,7 +52,7 @@ const int EDGE_THRESHOLD = 19;
 
 typedef std::bitset<256> Descriptor;
 
-char pattern_31_x_a[256] = {
+signed char pattern_31_x_a[256] = {
     8,   4,   -11, 7,   2,   1,   -2,  -13, -13, 10,  -13, -11, 7,   -4,  -13,
     -9,  12,  -3,  -6,  11,  4,   5,   3,   -8,  -2,  -13, -7,  -4,  -10, 5,
     5,   1,   9,   4,   2,   -4,  -8,  4,   0,   -13, -3,  -6,  8,   0,   7,
@@ -72,7 +72,7 @@ char pattern_31_x_a[256] = {
     2,   -1,  9,   11,  3,   -1,  3,   -13, 5,   8,   7,   -10, 7,   9,   7,
     -1};
 
-char pattern_31_y_a[256] = {
+signed char pattern_31_y_a[256] = {
     -3,  2,   9,   -12, -13, -7,  -10, -13, -3,  4,   -8,  7,   7,   -5,  2,
     0,   -6,  6,   -13, -13, 7,   -3,  -7,  -7,  11,  12,  3,   2,   -12, -12,
     -6,  0,   11,  7,   -1,  -12, -5,  11,  -8,  -2,  -2,  9,   12,  9,   -5,
@@ -92,7 +92,7 @@ char pattern_31_y_a[256] = {
     7,   -6,  5,   -3,  0,   4,   -6,  0,   8,   9,   -4,  4,   3,   -7,  0,
     -6};
 
-char pattern_31_x_b[256] = {
+signed char pattern_31_x_b[256] = {
     9,   7,  -8, 12,  2,   1,  -2,  -11, -12, 11,  -8,  -9,  12,  -3,  -12, -7,
     12,  -2, -4, 12,  5,   10, 6,   -6,  -1,  -8,  -5,  -3,  -6,  6,   7,   4,
     11,  4,  4,  -2,  -7,  9,  1,   -8,  -2,  -4,  10,  1,   11,  -11, 12,  -6,
@@ -110,7 +110,7 @@ char pattern_31_x_b[256] = {
     3,   11, 7,  12,  -3,  4,  2,   -8,  -11, -11, 11,  1,   -9,  -6,  -8,  8,
     3,   -1, 11, 12,  3,   0,  4,   -10, 12,  9,   8,   -10, 12,  10,  12,  0};
 
-char pattern_31_y_b[256] = {
+signed char pattern_31_y_b[256] = {
     5,   -12, 2,   -13, 12,  6,   -4,  -8,  -9,  9,   -9,  12,  6,   0,  -3,
     5,   -1,  12,  -8,  -8,  1,   -3,  12,  -2,  -10, 10,  -3,  7,   11, -7,
     -1,  -5,  -13, 12,  4,   7,   -10, 12,  -13, 2,   3,   -9,  7,   3,  -10,
@@ -162,22 +162,29 @@ void computeAngles(const pangolin::ManagedImage<uint8_t>& img_raw,
 
     if (rotate_features) {
       // TODO SHEET 3: compute angle
-      int m01 = 0;
-      int m10 = 0;
+      UNUSED(img_raw);
+      UNUSED(cx);
+      UNUSED(cy);
 
-      for (int i = -15; i < 16; i++) {
-        for (int j = -15; j < 16; j++) {
-          if (((i * i) + (j * j)) <= 225) {
-            m01 += j * img_raw((cx + i), (cy + j));
-            m10 += i * img_raw((cx + i), (cy + j));
-          }
-        }
+      // Filter points in region of interest first
+      std::vector<std::pair<int, int>> roi_points;
+      for (int x = -1 * HALF_PATCH_SIZE; x <= HALF_PATCH_SIZE; x++)
+        for (int y = -1 * HALF_PATCH_SIZE; y <= HALF_PATCH_SIZE; y++)
+          if (x * x + y * y <= HALF_PATCH_SIZE * HALF_PATCH_SIZE)
+            roi_points.push_back(std::make_pair(x, y));
+
+      double m01 = 0;
+      double m10 = 0;
+      double intensity_value = 0;
+      for (int j = 0; j < roi_points.size(); j++) {
+        int x_idx = roi_points[j].first;
+        int y_idx = roi_points[j].second;
+        intensity_value = (int)img_raw(cx + x_idx, cy + y_idx);
+        m10 += (x_idx * intensity_value);
+        m01 += (y_idx * intensity_value);
       }
 
-      // UNUSED(img_raw);
-      // UNUSED(cx);
-      // UNUSED(cy);
-      angle = atan2(m01, m10);
+      angle = std::atan2(m01, m10);
     }
 
     kd.corner_angles[i] = angle;
@@ -198,38 +205,43 @@ void computeDescriptors(const pangolin::ManagedImage<uint8_t>& img_raw,
     const int cy = p[1];
 
     // TODO SHEET 3: compute descriptor
+    UNUSED(img_raw);
+    UNUSED(angle);
+    UNUSED(cx);
+    UNUSED(cy);
 
-    double cos = std::cos(angle);
-    double sin = std::sin(angle);
+    // Create a rotation matrix using Eigen::Rotation2D
+    Eigen::Rotation2D<double> rotation(angle);
+    // Obtain the rotation matrix as a 2x2 Eigen::Matrix
+    Eigen::Matrix2d rotationMatrix = rotation.toRotationMatrix();
 
-    Eigen::Matrix<double, 2, 2> rotation;
-    rotation << cos, -(sin), sin, cos;
+    for (int i = 0; i < descriptor.size(); i++) {
+      // init descriptor
+      descriptor[i] = 0;
 
-    Eigen::Vector2d pa, pb, pa1, pb1;
+      // Set pattern
+      Eigen::Vector2d p_a =
+          Eigen::Vector2d(pattern_31_x_a[i], pattern_31_y_a[i]);
+      Eigen::Vector2d p_b =
+          Eigen::Vector2d(pattern_31_x_b[i], pattern_31_y_b[i]);
 
-    int count = 0;
+      Eigen::Vector2d p_a_prime = rotationMatrix * p_a;
+      Eigen::Vector2d p_b_prime = rotationMatrix * p_b;
 
-    for (int j = 0; j < 256; j++) {
-      pa << (((int)pattern_31_x_a[j])), (((int)pattern_31_y_a[j]));
-      pb << (((int)pattern_31_x_b[j])), (((int)pattern_31_y_b[j]));
-      pa1 = p + (rotation * pa);
-      pb1 = p + (rotation * pb);
+      // Add cx and cy
+      p_a_prime += p;
+      p_b_prime += p;
 
-      double p_a_prime_intensity =
-          (double)img_raw(round(pa1(0)), round(pa1(1)));
-      double p_b_prime_intensity =
-          (double)img_raw(round(pb1(0)), round(pb1(1)));
+      std::pair<int, int> p_a_prime_idx =
+          std::make_pair<int, int>(round(p_a_prime[0]), round(p_a_prime[1]));
+      std::pair<int, int> p_b_prime_idx =
+          std::make_pair<int, int>(round(p_b_prime[0]), round(p_b_prime[1]));
 
-      if (p_a_prime_intensity < p_b_prime_intensity) {
-        descriptor[j] = 1;
-      } else {
-        descriptor[j] = 0;
+      if (img_raw(p_a_prime_idx.first, p_a_prime_idx.second) <
+          img_raw(p_b_prime_idx.first, p_b_prime_idx.second)) {
+        descriptor[i] = 1;
       }
     }
-    // UNUSED(img_raw);
-    // UNUSED(angle);
-    // UNUSED(cx);
-    // UNUSED(cy);
 
     kd.corner_descriptors[i] = descriptor;
   }
@@ -243,6 +255,54 @@ void detectKeypointsAndDescriptors(
   computeDescriptors(img_raw, kd);
 }
 
+std::vector<std::pair<int, int>> getMatches(
+    const std::vector<std::bitset<256>>& descriptor1,
+    const std::vector<std::bitset<256>>& descriptor2, int thresh,
+    double second_best_thresh) {
+  std::vector<std::pair<int, int>> match_ids;
+  for (int idx1 = 0; idx1 < descriptor1.size(); idx1++) {
+    const Descriptor& desc1 = descriptor1[idx1];
+
+    int match_idx = 0;
+    int min_dist = 255;
+    int second_min_dist = min_dist;
+
+    for (int idx2 = 0; idx2 < descriptor2.size(); idx2++) {
+      const Descriptor& desc2 = descriptor2[idx2];
+
+      // Hamming distance
+      int dist = (desc1 ^ desc2).count();
+
+      if (dist < min_dist) {
+        second_min_dist = min_dist;  // Replace 2nd best
+        min_dist = dist;
+        match_idx = idx2;  // set match
+
+      } else if (dist < second_min_dist) {
+        second_min_dist = dist;
+      }
+    }
+    // Additional checks for appropriate matches
+    if ((min_dist >= thresh) ||
+        (second_min_dist < (second_best_thresh * min_dist)))
+      continue;
+    match_ids.push_back(std::pair<int, int>(idx1, match_idx));
+  }
+  return match_ids;
+}
+
+bool isValidMatch(std::pair<int, int> pair,
+                  std::vector<std::pair<int, int>> matches) {
+  bool found = false;
+  for (int i = 0; i < matches.size(); i++) {
+    const std::pair<int, int>& dst_match = matches[i];
+    if ((pair.second == dst_match.first) && (pair.first == dst_match.second)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void matchDescriptors(const std::vector<std::bitset<256>>& corner_descriptors_1,
                       const std::vector<std::bitset<256>>& corner_descriptors_2,
                       std::vector<std::pair<int, int>>& matches, int threshold,
@@ -250,55 +310,28 @@ void matchDescriptors(const std::vector<std::bitset<256>>& corner_descriptors_1,
   matches.clear();
 
   // TODO SHEET 3: match features
-  for (unsigned int i = 0; i < corner_descriptors_1.size(); i++) {
-    int dist1 = 257;
-    int dist2 = 257;
-    unsigned int ind = 0;
+  UNUSED(corner_descriptors_1);
+  UNUSED(corner_descriptors_2);
+  UNUSED(matches);
+  UNUSED(threshold);
+  UNUSED(dist_2_best);
 
-    for (unsigned int j = 0; j < corner_descriptors_2.size(); j++) {
-      int curr_dist =
-          (corner_descriptors_1[i] ^ corner_descriptors_2[j]).count();
-      if (curr_dist < dist1) {
-        dist2 = dist1;
-        dist1 = curr_dist;
-        ind = j;
-      } else if (curr_dist < dist2) {
-        dist2 = curr_dist;
-      }
-    }
+  std::vector<std::pair<int, int>> matches1;
+  std::vector<std::pair<int, int>> matches2;
 
-    if ((dist1 >= threshold) || (dist2 < dist_2_best * dist1)) {
-      continue;
-    }
+  // Check P->Q and Q->P matches
+  matches1 = getMatches(corner_descriptors_1, corner_descriptors_2, threshold,
+                        dist_2_best);
 
-    int dist3 = 257;
-    int dist4 = 257;
-    unsigned int ind2 = 0;
+  matches2 = getMatches(corner_descriptors_2, corner_descriptors_1, threshold,
+                        dist_2_best);
 
-    for (unsigned int k = 0; k < corner_descriptors_1.size(); k++) {
-      int curr_dist;
-      curr_dist = (corner_descriptors_1[k] ^ corner_descriptors_2[ind]).count();
-      if (curr_dist < dist3) {
-        dist4 = dist3;
-        dist3 = curr_dist;
-        ind2 = k;
-      } else if (curr_dist < dist4) {
-        dist4 = curr_dist;
-      }
-    }
-    if (dist3 >= threshold || dist4 < dist_2_best * dist3) {
-      continue;
-    }
-    if (ind2 == i) {
-      std::pair<int, int> match(ind2, ind);
-      matches.push_back(match);
-    }
+  // Check for match consistency: find match in one set and look for same match
+  // in other set
+  for (int i = 0; i < matches1.size(); i++) {
+    std::pair<int, int> pair1 = matches1[i];
+    if (isValidMatch(pair1, matches2)) matches.push_back(pair1);
   }
-  // UNUSED(corner_descriptors_1);
-  // UNUSED(corner_descriptors_2);
-  // UNUSED(matches);
-  // UNUSED(threshold);
-  // UNUSED(dist_2_best);
 }
 
 }  // namespace visnav

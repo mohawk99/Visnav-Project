@@ -120,7 +120,6 @@ struct KeypointsData {
   /// FeatureId)
   std::vector<std::bitset<256>> corner_descriptors;
 };
-
 /// feature corners is a collection of { imageId => KeypointsData }
 using Corners = tbb::concurrent_unordered_map<FrameCamId, KeypointsData>;
 
@@ -310,6 +309,45 @@ using BowDBInverseIndex =
 /// Inverse index used in Bow database. Suited for concurrent computation.
 using BowDBInverseIndexConcurrent = tbb::concurrent_unordered_map<
     WordId, tbb::concurrent_vector<std::pair<FrameCamId, WordValue>>>;
+
+/****
+ * Implement the CovisGraph class
+ *
+ *
+ */
+
+class CoVisGraph {
+ private:
+  std::map<FrameId, std::vector<FrameId>> edges;  // Rethink
+
+ public:
+  CoVisGraph();
+  ~CoVisGraph();
+
+  void update(FrameId anchor_kf, FrameId covis_kf);
+  std::vector<FrameId> getCovisFrames(FrameId key);
+};
+
+CoVisGraph::CoVisGraph() {}
+
+CoVisGraph::~CoVisGraph() {}
+
+void CoVisGraph::update(FrameId key, FrameId value) {
+  // Check if the key already exists
+  auto it = edges.find(key);
+  if (it != edges.end()) {
+    // Key already exists, append the value to the existing vector
+    it->second.push_back(value);
+  } else {
+    // Key doesn't exist, create a new vector and assign the value
+    std::vector<FrameId> newValue = {value};
+    edges[key] = newValue;
+  }
+}
+
+std::vector<FrameId> CoVisGraph::getCovisFrames(FrameId key) {
+  return edges.at(key);
+}
 
 }  // namespace visnav
 

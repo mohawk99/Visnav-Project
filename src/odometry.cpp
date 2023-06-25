@@ -64,6 +64,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <visnav/serialization.h>
 
+#include <visnav/utilities.h>
+
 using namespace visnav;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -137,13 +139,22 @@ Landmarks old_landmarks;
 /// determining outliers; indexed by images
 ImageProjections image_projections;
 
+/**
+ * PROJECT:
+ * Covisibility Graph containing edges if two Key Frames are covisible
+ * TODO: Extend class for loop edge too later
+ */
+
+CoVisGraph covis_graph;
+/** END_PROJECT: **/
+
 ///////////////////////////////////////////////////////////////////////////////
 /// GUI parameters
 ///////////////////////////////////////////////////////////////////////////////
 
-// The following GUI elements can be enabled / disabled from the main panel by
-// switching the prefix from "ui" to "hidden" or vice verca. This way you can
-// show only the elements you need / want for development.
+// The following GUI elements can be enabled / disabled from the main panel
+// by switching the prefix from "ui" to "hidden" or vice verca. This way you
+// can show only the elements you need / want for development.
 
 pangolin::Var<bool> ui_show_hidden("ui.show_extra_options", false, true);
 
@@ -893,6 +904,53 @@ bool next_step() {
                     reprojection_error_pnp_inlier_threshold_pixel, md);
 
     current_pose = md.T_w_c;
+
+    /**
+     * Add Covisibility Edges here
+     */
+    int window_size = 3;
+    const int MATCH_THRESHOLD = 70;
+    const double DIST_2_BEST = 1.2;
+    auto covis_candidates = getTopNElements(kf_frames, window_size);
+
+    std::cout << "Current Frame: " << current_frame << " | Candidate Frames: ";
+
+    for (auto& candidate_kf : covis_candidates) {
+      std::cout << candidate_kf << ", ";
+
+      KeypointsData kdl_candidate =
+          feature_corners[FrameCamId(candidate_kf, 0)];
+
+      std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
+      matchDescriptors(kdl_candidate.corner_descriptors, kdl.corner_descriptors,
+                       desc_matches, MATCH_THRESHOLD, DIST_2_BEST);
+
+      typedef std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>
+          KeypointCoordinatePairs;
+
+      /** TODO: For each FID pair in desc_matches,
+       * populate a list of corresponding kp_coordinates pairs
+       * that will be passed on to the RANSAC optimization **/
+      KeypointCoordinatePairs kp_corner_matches;
+
+      for (auto& match : desc_matches) {
+        auto cand_corner = kdl_candidate.corners[match.first];
+        auto current_corner = kdl.corners[match.second];
+        kp_corner_matches.push_back(
+            std::make_pair(cand_corner, current_corner));
+      }
+
+      /** TODO: Pass kp_corner_matches to find transformation using RANSAC
+       * here*/
+
+      /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
+
+      bool covis = false;
+      if (covis) {
+        covis_graph.update(current_frame, candidate_kf);
+      }
+    }
+    std::cout << "\n";
 
     if (int(md.inliers.size()) < new_kf_min_inliers && !opt_running &&
         !opt_finished) {

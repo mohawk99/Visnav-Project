@@ -326,6 +326,7 @@ class CoVisGraph {
 
   void update(FrameId anchor_kf, FrameId covis_kf);
   std::vector<FrameId> getCovisFrames(FrameId key);
+  bool exists(FrameId key);
 };
 
 CoVisGraph::CoVisGraph() {}
@@ -340,13 +341,28 @@ void CoVisGraph::update(FrameId key, FrameId value) {
     it->second.push_back(value);
   } else {
     // Key doesn't exist, create a new vector and assign the value
-    std::vector<FrameId> newValue = {value};
+    std::vector<FrameId> newValue;
+    if (value != -1) newValue.push_back(value);
     edges[key] = newValue;
   }
+  // std::cout << "Edge Matrix\n";
+  // for (auto& kv : edges) {
+  //   std::cout << "Key: " << kv.first << " | Values: ";
+  //   for (auto v : kv.second) {
+  //     std::cout << v << ", ";
+  //   }
+  //   std::cout << "\n";
+  // }
 }
 
 std::vector<FrameId> CoVisGraph::getCovisFrames(FrameId key) {
+  // std::cout << "Returning key: " << key << "\n";
   return edges.at(key);
+}
+
+bool CoVisGraph::exists(FrameId key) {
+  auto it = edges.find(key);
+  return it != edges.end();
 }
 
 }  // namespace visnav

@@ -911,46 +911,145 @@ bool next_step() {
     int window_size = 3;
     const int MATCH_THRESHOLD = 70;
     const double DIST_2_BEST = 1.2;
-    auto covis_candidates = getTopNElements(kf_frames, window_size);
 
-    std::cout << "Current Frame: " << current_frame << " | Candidate Frames: ";
+    if (kf_frames.size() > window_size) {
+      auto covis_candidates = getTopNElements(kf_frames, window_size);
 
-    for (auto& candidate_kf : covis_candidates) {
-      std::cout << candidate_kf << ", ";
+      std::cout << "Current Frame: " << current_frame
+                << " | Candidate Frames: ";
 
-      KeypointsData kdl_candidate =
-          feature_corners[FrameCamId(candidate_kf, 0)];
+      for (auto& candidate_kf : covis_candidates) {
+        if (candidate_kf == current_frame) continue;
+        std::cout << candidate_kf << ", ";
 
-      std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
-      matchDescriptors(kdl_candidate.corner_descriptors, kdl.corner_descriptors,
-                       desc_matches, MATCH_THRESHOLD, DIST_2_BEST);
+        KeypointsData kdl_candidate =
+            feature_corners[FrameCamId(candidate_kf, 0)];
 
-      typedef std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>
-          KeypointCoordinatePairs;
+        std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
+        matchDescriptors(kdl_candidate.corner_descriptors,
+                         kdl.corner_descriptors, desc_matches, MATCH_THRESHOLD,
+                         DIST_2_BEST);
 
-      /** TODO: For each FID pair in desc_matches,
-       * populate a list of corresponding kp_coordinates pairs
-       * that will be passed on to the RANSAC optimization **/
-      KeypointCoordinatePairs kp_corner_matches;
+        typedef std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>
+            KeypointCoordinatePairs;
 
-      for (auto& match : desc_matches) {
-        auto cand_corner = kdl_candidate.corners[match.first];
-        auto current_corner = kdl.corners[match.second];
-        kp_corner_matches.push_back(
-            std::make_pair(cand_corner, current_corner));
+        /** TODO: For each FID pair in desc_matches,
+         * populate a list of corresponding kp_coordinates pairs
+         * that will be passed on to the RANSAC optimization **/
+        KeypointCoordinatePairs kp_corner_matches;
+
+        for (auto& match : desc_matches) {
+          auto cand_corner = kdl_candidate.corners[match.first];
+          auto current_corner = kdl.corners[match.second];
+          kp_corner_matches.push_back(
+              std::make_pair(cand_corner, current_corner));
+        }
+
+        /** TODO: Pass kp_corner_matches to find transformation using RANSAC
+         * here*/
+
+        /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
+
+        int inlier_threshold = 15;  // TEMP check
+        bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+
+        if (covis) {
+          covis_graph.update(current_frame, candidate_kf);
+
+          // Draw Covis Edge
+          // auto it = cameras.find(FrameCamId(current_frame, 0));
+          // if (it != cameras.end()) {
+          // const auto& current_cam = cameras.at(FrameCamId(current_frame, 0));
+          const auto& covis_cam = cameras.at(FrameCamId(candidate_kf, 0));
+
+          // // Create a Pangolin window
+          pangolin::CreateWindowAndBind("Camera Visualization", 640, 480);
+
+          // // Enable depth testing for rendering 3D objects properly
+          glEnable(GL_DEPTH_TEST);
+
+          // // Create a Pangolin view and set its camera parameters
+          pangolin::OpenGlRenderState s_cam(
+              pangolin::ProjectionMatrix(640, 480, 420, 420, 320, 240, 0.1,
+                                         1000),
+              pangolin::ModelViewLookAt(-1, -1, -1, 0, 0, 0, pangolin::AxisY));
+
+          // // Create a Pangolin view container
+          pangolin::View& d_cam =
+              pangolin::CreateDisplay()
+                  .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0,
+                             -640.0f / 480.0f)
+                  .SetHandler(new pangolin::Handler3D(s_cam));
+
+          // while (!pangolin::ShouldQuit()) {
+          //   // Clear the Pangolin display
+          // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+          //   // Activate the view container
+          d_cam.Activate(s_cam);
+
+          // Define the transformation matrices for both cameras (T_w_c1 and
+          // T_w_c2)
+          Eigen::Matrix4d T_w_c1, T_w_c2;
+          T_w_c1 = current_pose.matrix();
+          T_w_c2 = covis_cam.T_w_c.matrix();
+
+          // TODO: Assign values to T_w_c1 and T_w_c2
+          // glPushMatrix();
+          // glMultMatrixd(T_w_c1.data());
+          // Draw camera centers and the line between them
+          DrawCameraCenter(T_w_c1, 1.0f, 0.0f,
+                           0.0f);  // Red color for camera 1
+          DrawCameraCenter(T_w_c2, 0.0f, 0.0f,
+                           1.0f);  // Blue color for camera 2
+          DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.0f, 1.0f,
+                                 0.0f);  // Green color for the line
+                                         // glPopMatrix();
+                                         // Swap the Pangolin display buffers
+                                         // pangolin::FinishFrame();
+          // }
+          // }
+        } else {
+          // Add empty entry
+          // covis_graph.update(current_frame, -1);
+        }
       }
+      std::cout << "\n";
 
-      /** TODO: Pass kp_corner_matches to find transformation using RANSAC
-       * here*/
+      /** PROJECT: Draw Covisibility Edge here **/
+      // Compute the centroid of the camera
+      // for (const auto& cam : cameras) {
+      //   auto T_w_c_float = cam.second.T_w_c.cast<float>();
+      //   auto cameraCentroid = T_w_c_float.translation();
+      //   FrameCamId fcid = cam.first;
+      //   FrameId fid = fcid.frame_id;
+      //   if (covis_graph.exists(fid)) {
+      //     auto covis_frames = covis_graph.getCovisFrames(fid);
+      //     std::cout << "Found " << covis_frames.size()
+      //               << " covisible frames for Frame: " << fid << " --> "
+      //               << covis_frames[0] << ", " << covis_frames[1] << ", "
+      //               << covis_frames[2] << "\n";
 
-      /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
+      //     for (auto frame : covis_frames) {
+      //       auto frame_cam = cameras.at(
+      //           FrameCamId(frame, 0));  // Dealing with left cameras only
+      //       auto frame_T_w_c = frame_cam.T_w_c.cast<float>();
+      //       auto frame_camCentroid = frame_T_w_c.translation();
+      //       const u_int8_t color_covis_edge[3]{0, 250, 0};
 
-      bool covis = false;
-      if (covis) {
-        covis_graph.update(current_frame, candidate_kf);
-      }
+      //       // Draw line between two camera centroids
+      //       // glColor3f(1.0f, 0.0f, 1.0f);
+      //       // glLineWidth(2.0f);
+      //       // glBegin(GL_LINES);
+      //       // glVertex3f(cameraCentroid.x(), cameraCentroid.y(),
+      //       //            cameraCentroid.z());
+      //       // glVertex3f(frame_camCentroid.x(), frame_camCentroid.y(),
+      //       //            frame_camCentroid.z());
+      //       // glEnd();
+      //     }
+      //   }
+      // }
     }
-    std::cout << "\n";
 
     if (int(md.inliers.size()) < new_kf_min_inliers && !opt_running &&
         !opt_finished) {

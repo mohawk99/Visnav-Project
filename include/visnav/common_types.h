@@ -319,7 +319,7 @@ using BowDBInverseIndexConcurrent = tbb::concurrent_unordered_map<
 class CoVisGraph {
  private:
   std::map<FrameId, std::vector<FrameId>> edges;  // Rethink
-
+                                                  //
  public:
   CoVisGraph();
   ~CoVisGraph();

@@ -196,6 +196,8 @@ pangolin::Var<int> new_kf_min_inliers("hidden.new_kf_min_inliers", 80, 1, 200);
 pangolin::Var<int> max_num_kfs("hidden.max_num_kfs", 10, 5, 20);
 
 pangolin::Var<double> cam_z_threshold("hidden.cam_z_threshold", 0.1, 1.0, 0.0);
+pangolin::Var<double> relative_pose_ransac_thresh("hidden.5pt_thresh", 5e-5,
+                                                  1e-10, 1, true);
 
 //////////////////////////////////////////////
 /// Adding cameras and landmarks options
@@ -954,13 +956,13 @@ bool next_step() {
          * populate a list of corresponding kp_coordinates pairs
          * that will be passed on to the RANSAC optimization **/
         KeypointCoordinatePairs kp_corner_matches;
-
-        for (auto& match : desc_matches) {
-          auto cand_corner = kdl_candidate.corners[match.first];
-          auto current_corner = kdl.corners[match.second];
-          kp_corner_matches.push_back(
-              std::make_pair(cand_corner, current_corner));
-        }
+// 
+        // for (auto& match : desc_matches) {
+        //   auto cand_corner = kdl_candidate.corners[match.first];
+        //   auto current_corner = kdl.corners[match.second];
+        //   kp_corner_matches.push_back(
+        //       std::make_pair(cand_corner, current_corner));
+        // }
 
         /** TODO: Pass kp_corner_matches to find transformation using RANSAC
          * here*/
@@ -968,9 +970,21 @@ bool next_step() {
         /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
 
         int inlier_threshold = 15;  // TEMP check
-        bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+
+        MatchData md1;
+        findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0], calib_cam.intrinsics[1],relative_pose_ransac_thresh,inlier_threshold, md1);
+
+
+        // bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+        bool covis = md1.inliers.size() > inlier_threshold ? true : false;
 
         if (covis) {
+            for (auto& match : desc_matches) {
+                auto cand_corner = kdl_candidate.corners[match.first];
+                auto current_corner = kdl.corners[match.second];
+                kp_corner_matches.push_back(
+              std::make_pair(cand_corner, current_corner));
+            }
           covis_graph.update(current_frame, candidate_kf);
         }
       }

@@ -316,16 +316,26 @@ using BowDBInverseIndexConcurrent = tbb::concurrent_unordered_map<
  *
  */
 
+struct GraphEdge {
+  int type;       // 1 for Covis, 2 for Loop
+  float weight;   // typically inliers
+  FrameId value;  // The covis/loop candidate frame
+};
+
 class CoVisGraph {
  private:
-  std::map<FrameId, std::vector<FrameId>> edges;  // Rethink
-                                                  //
+  bool temp;
+  //
  public:
+  std::map<FrameId, std::vector<GraphEdge>> edges;  // Rethink
+  std::map<FrameId, Eigen::Matrix4d> poses;  // For plotting camera centers
+
   CoVisGraph();
   ~CoVisGraph();
 
-  void update(FrameId anchor_kf, FrameId covis_kf);
-  std::vector<FrameId> getCovisFrames(FrameId key);
+  void add_edge(FrameId anchor_kf, GraphEdge edge);
+  void add_pose(FrameId kf, Eigen::Matrix4d edge);
+  std::vector<GraphEdge> getCovisFrames(FrameId key);
   bool exists(FrameId key);
 };
 
@@ -333,7 +343,7 @@ CoVisGraph::CoVisGraph() {}
 
 CoVisGraph::~CoVisGraph() {}
 
-void CoVisGraph::update(FrameId key, FrameId value) {
+void CoVisGraph::add_edge(FrameId key, GraphEdge value) {
   // Check if the key already exists
   auto it = edges.find(key);
   if (it != edges.end()) {
@@ -341,21 +351,24 @@ void CoVisGraph::update(FrameId key, FrameId value) {
     it->second.push_back(value);
   } else {
     // Key doesn't exist, create a new vector and assign the value
-    std::vector<FrameId> newValue;
-    if (value != -1) newValue.push_back(value);
+    std::vector<GraphEdge> newValue;
+    newValue.push_back(value);
     edges[key] = newValue;
   }
-  // std::cout << "Edge Matrix\n";
-  // for (auto& kv : edges) {
-  //   std::cout << "Key: " << kv.first << " | Values: ";
-  //   for (auto v : kv.second) {
-  //     std::cout << v << ", ";
-  //   }
-  //   std::cout << "\n";
-  // }
 }
 
-std::vector<FrameId> CoVisGraph::getCovisFrames(FrameId key) {
+void CoVisGraph::add_pose(FrameId key, Eigen::Matrix4d value) {
+  // Check if the key already exists
+  auto it = poses.find(key);
+  if (it != poses.end()) {
+    std::cout << "[add_pose] [warning] Overwriting pose of " << key << "\n";
+    poses.emplace(std::make_pair(key, value));
+  } else {
+    poses.emplace(std::make_pair(key, value));
+  }
+}
+
+std::vector<GraphEdge> CoVisGraph::getCovisFrames(FrameId key) {
   // std::cout << "Returning key: " << key << "\n";
   return edges.at(key);
 }

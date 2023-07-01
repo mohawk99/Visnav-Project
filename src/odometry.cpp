@@ -695,27 +695,26 @@ void draw_scene() {
     // }
 
     // PLOT FOR ALL KF_FRAMES
-    if (kf_frames.size() > WINDOW_SIZE) {
-      for (const auto& kf : kf_frames) {
-        auto kf_cam = cameras[FrameCamId(kf, 0)];
-        const Eigen::Matrix4d& T_w_c2 = kf_cam.T_w_c.matrix();
+    for (const auto& kv : covis_graph.edges) {
+      FrameId kf = kv.first;
+      std::vector<GraphEdge> edges = kv.second;
 
-        if (covis_graph.exists(kf)) {
-          auto covis_frames = covis_graph.getCovisFrames(kf);
+      const Eigen::Matrix4d& T_w_c1 = covis_graph.poses[kf];
 
-          for (auto frame : covis_frames) {
-            const Eigen::Matrix4d& T_w_c1 =
-                cameras[FrameCamId(frame, 0)].T_w_c.matrix();
+      for (auto e : edges) {
+        FrameId frame = e.value;
+        int type = e.type;
+        float weight = e.weight;
 
-            DrawCameraCenter(T_w_c1, 1.0f, 0.0f,
-                             0.0f);  // Red color for camera center
-            DrawCameraCenter(T_w_c2, 0.0f, 0.0f,
-                             1.0f);  // Blue color for camera 2
+        const Eigen::Matrix4d& T_w_c2 = covis_graph.poses[frame];
 
-            const u_int8_t color_line[3] = {0, 1, 0};  // Green color
-            DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.5f, 1.0f, 0.0f);
-          }
-        }
+        DrawCameraCenter(T_w_c1, 1.0f, 0.0f,
+                         0.0f);  // Red color for camera 1
+        DrawCameraCenter(T_w_c2, 0.0f, 0.0f,
+                         1.0f);  // Blue color for camera 2
+
+        const u_int8_t color_line[3] = {0, 1, 0};  // Green color
+        DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.5f, 1.0f, 0.0f);
       }
     }
   }
@@ -916,7 +915,7 @@ bool next_step() {
     const double DIST_2_BEST = 1.2;
     bool new_keyframe_added = kf_frames.size() > num_keyframes;
 
-    if (kf_frames.size() > WINDOW_SIZE && new_keyframe_added) {
+    if (new_keyframe_added) {
       auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
       FrameId ckf = *covis_candidates.begin();
       std::cout << "New Keyframe Added: " << ckf << "\n";
@@ -960,7 +959,17 @@ bool next_step() {
         bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
 
         if (covis) {
-          covis_graph.update(current_frame, candidate_kf);
+          GraphEdge covis_edge;
+          covis_edge.type = 1;
+          covis_edge.weight = kp_corner_matches.size();
+          covis_edge.value = candidate_kf;
+
+          covis_graph.add_edge(ckf, covis_edge);
+
+          // Add cameras for plotting
+          covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
+          covis_graph.poses[candidate_kf] =
+              cameras[FrameCamId(candidate_kf, 0)].T_w_c.matrix();
         }
       }
       std::cout << "\n";

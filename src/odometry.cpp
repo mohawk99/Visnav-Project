@@ -66,6 +66,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <visnav/utilities.h>
 
+#include <visnav/bow_db.h>
+#include <visnav/bow_voc.h>
+
 using namespace visnav;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -148,6 +151,14 @@ ImageProjections image_projections;
 CoVisGraph covis_graph;
 int num_keyframes = kf_frames.size();
 int WINDOW_SIZE = 3;
+const std::string vocab_path = "./data/ORBvoc.cereal";
+BowDatabase BOW_DB;
+BowVocabulary BOW_VOCAB(vocab_path);
+
+std::map<FrameId, bool> loop_candidates;
+const int patience = 3;
+int loop_consistency_timeout = patience;
+
 /** END_PROJECT: **/
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -677,23 +688,6 @@ void draw_scene() {
     render_camera(current_pose.matrix(), 2.0f, color_camera_current, 0.1f);
     const Eigen::Matrix4d& T_w_c2 = current_pose.matrix();
 
-    // PLOT WITH CURRENT FRAME
-    // if (current_frame > kf_frames.size() &&
-    //     covis_graph.exists(fcid1.frame_id)) {
-    //   auto covis_frames = covis_graph.getCovisFrames(fcid1.frame_id);
-
-    //   for (auto frame : covis_frames) {
-    //     const Eigen::Matrix4d& T_w_c1 =
-    //         cameras[FrameCamId(frame, 0)].T_w_c.matrix();
-
-    //     DrawCameraCenter(T_w_c1, 1.0f, 0.0f, 0.0f);  // Red color for camera
-    //     DrawCameraCenter(T_w_c2, 0.0f, 0.0f, 1.0f);  // Blue color for
-
-    //     const u_int8_t color_line[3] = {0, 1, 0};  // Green color for the
-    //     DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.5f, 1.0f, 0.0f);
-    //   }
-    // }
-
     // PLOT FOR ALL KF_FRAMES
     for (const auto& kv : covis_graph.edges) {
       FrameId kf = kv.first;
@@ -713,8 +707,13 @@ void draw_scene() {
         DrawCameraCenter(T_w_c2, 0.0f, 0.0f,
                          1.0f);  // Blue color for camera 2
 
-        const u_int8_t color_line[3] = {0, 1, 0};  // Green color
-        DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.5f, 1.0f, 0.0f);
+        u_int8_t color_line[3];
+
+        if (type == 1) {
+          DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.0f, 1.0f, 0.0f);
+        } else {
+          DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.0f, 0.0f, 1.0f);
+        }
       }
     }
   }
@@ -918,6 +917,13 @@ bool next_step() {
     if (new_keyframe_added) {
       auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
       FrameId ckf = *covis_candidates.begin();
+      KeypointsData kdl = feature_corners[FrameCamId(ckf, 0)];
+
+      // Add Bow vector
+      BowVector kf_bow;
+      BOW_VOCAB.transform(kdl.corner_descriptors, kf_bow);
+      BOW_DB.insert(FrameCamId(ckf, 0), kf_bow);
+
       std::cout << "New Keyframe Added: " << ckf << "\n";
 
       std::cout << "Current KeyFrame: " << ckf << " | Candidate KeyFrames: ";
@@ -925,10 +931,13 @@ bool next_step() {
       for (auto& candidate_kf : covis_candidates) {
         if (candidate_kf == ckf) continue;
         std::cout << candidate_kf << ", ";
-
-        KeypointsData kdl = feature_corners[FrameCamId(ckf, 0)];
         KeypointsData kdl_candidate =
             feature_corners[FrameCamId(candidate_kf, 0)];
+
+        // Add BoW for candidate keyframe
+        BowVector cand_kf_bow;
+        BOW_VOCAB.transform(kdl_candidate.corner_descriptors, cand_kf_bow);
+        BOW_DB.insert(FrameCamId(candidate_kf, 0), cand_kf_bow);
 
         std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
         matchDescriptors(kdl_candidate.corner_descriptors,
@@ -973,6 +982,61 @@ bool next_step() {
         }
       }
       std::cout << "\n";
+
+      /** TODO: Loop Candidate Selection*/
+      int keeptopk = 3;
+      BowQueryResult query_result;
+      BOW_DB.query(kf_bow, keeptopk + 1,
+                   query_result);  // + 1 because selfmatch will be discarded
+
+      for (auto it = query_result.begin(); it != query_result.end(); it++) {
+        FrameId it_fid = it->first.frame_id;
+        if (it_fid == ckf) {
+          query_result.erase(it);  // Discard self match
+          break;
+        }
+      }
+
+      //  Use second best match distance criteria
+
+      float second_best_dist_ratio = 0.75;
+      FrameId loop_fid = query_result[0].first.frame_id;
+
+      if (query_result[0].second >
+          second_best_dist_ratio * query_result[1].second) {
+        if (loop_candidates.find(loop_fid) != loop_candidates.end()) {
+          loop_candidates[loop_fid] &= true;
+        } else {
+          loop_candidates[loop_fid] = true;
+        }
+        loop_consistency_timeout--;
+      } else {
+        // Not a good match
+        if (loop_candidates.find(loop_fid) != loop_candidates.end()) {
+          loop_candidates[loop_fid] &= false;
+        } else {
+          loop_candidates[loop_fid] = false;
+        }
+        loop_consistency_timeout--;
+      }
+
+      if (loop_consistency_timeout == 0) {
+        loop_consistency_timeout = patience;
+
+        for (auto kv : loop_candidates) {
+          FrameId fid = kv.first;
+          bool is_consistent = kv.second;
+
+          if (is_consistent) {
+            GraphEdge loop_edge;
+            loop_edge.type = 2;
+            loop_edge.value = fid;
+            std::cout << "Adding Loop Edge from " << ckf << " to " << fid
+                      << "\n";
+            covis_graph.add_edge(ckf, loop_edge);
+          }
+        }
+      }
     }
 
     /***********************************************************/

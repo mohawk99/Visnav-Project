@@ -50,6 +50,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <CLI/CLI.hpp>
 
+#include <opengv/relative_pose/NoncentralRelativeAdapter.hpp>
+#include <opengv/sac_problems/relative_pose/NoncentralRelativePoseSacProblem.hpp>
+#include <opencv2/opencv.hpp>
+#include <opengv/types.hpp>
+
+
 #include <visnav/common_types.h>
 
 #include <visnav/calibration.h>
@@ -971,19 +977,76 @@ bool next_step() {
 
         int inlier_threshold = 15;  // TEMP check
 
-        MatchData md1;
-        findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0], calib_cam.intrinsics[1],relative_pose_ransac_thresh,inlier_threshold, md1);
+        // MatchData md1;
+        // findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0], calib_cam.intrinsics[1],relative_pose_ransac_thresh,inlier_threshold, md1);
+
+
+
+
+
+
+        // Convert keypoints to KeyPoint format
+        std::vector<cv::KeyPoint> keypoints1, keypoints2;
+        for (const Eigen::Vector2d& corner : kdl.corners) {
+          cv::KeyPoint keypoint(corner.x(), corner.y(), 1.0);
+          keypoints1.push_back(keypoint);
+        }
+        for (const Eigen::Vector2d& corner : kdl_candidate.corners) {
+          cv::KeyPoint keypoint(corner.x(), corner.y(), 1.0);
+          keypoints2.push_back(keypoint);
+        }
+
+        cv::Mat grayImage1, grayImage2;
+        cv::cvtColor(current_frame, grayImage1, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(candidate_kf, grayImage2, cv::COLOR_BGR2GRAY);
+
+        // Convert keypoints to descriptors
+        cv::Ptr<cv::ORB> descriptorExtractor = cv::ORB::create();
+        cv::Mat descriptors1, descriptors2;
+        descriptorExtractor->detectAndCompute(grayImage1, cv::noArray(), keypoints1, descriptors1);
+        descriptorExtractor->detectAndCompute(grayImage2, cv::noArray(), keypoints2, descriptors2);
+
+        // Create descriptor matcher
+        cv::BFMatcher matcher(cv::NORM_HAMMING);
+
+        // Match descriptors
+        std::vector<cv::DMatch> matches;
+        matcher.match(descriptors1, descriptors2, matches);
+
+        // Filter matches based on corner indices
+        std::vector<cv::DMatch> inliers;
+        for (const cv::DMatch& match : matches) {
+          int idx1 = match.queryIdx; // Index in keypoints1
+          int idx2 = match.trainIdx; // Index in keypoints2
+
+          // Check if the corresponding corner angles and descriptors match
+          if (kdl.corner_angles[idx1] == kdl_candidate.corner_angles[idx2] &&
+              kdl.corner_descriptors[idx1] == kdl_candidate.corner_descriptors[idx2]) {
+            inliers.push_back(match);
+          }
+        }
+
+        // Count inliers
+        int inlierCount = inliers.size();
+        std::cout << "Number of inliers: " << inlierCount << std::endl;
+
+        // Now you have the count of inliers between the two sets of keypoints
+
+
+
+
+
 
 
         // bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
-        bool covis = md1.inliers.size() > inlier_threshold ? true : false;
+        bool covis = inliers.size() > inlier_threshold ? true : false;
 
         if (covis) {
-            for (auto& match : desc_matches) {
-                auto cand_corner = kdl_candidate.corners[match.first];
-                auto current_corner = kdl.corners[match.second];
+            for (auto& match : inliers) {
+                auto cand_corner = kdl_candidate.corners[match.trainIdx];
+                auto current_corner = kdl.corners[match.queryIdx];
                 kp_corner_matches.push_back(
-              std::make_pair(cand_corner, current_corner));
+              std::make_pair(current_corner, cand_corner));
             }
           covis_graph.update(current_frame, candidate_kf);
         }

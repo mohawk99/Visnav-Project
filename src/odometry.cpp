@@ -992,6 +992,8 @@ bool next_step() {
       for (auto it = query_result.begin(); it != query_result.end(); it++) {
         FrameId it_fid = it->first.frame_id;
         if (it_fid == ckf) {
+          std::cout << "Erasing self-match for " << it_fid << " | "
+                    << it->second << "\n";
           query_result.erase(it);  // Discard self match
           break;
         }
@@ -999,11 +1001,14 @@ bool next_step() {
 
       //  Use second best match distance criteria
 
-      float second_best_dist_ratio = 0.75;
+      float second_best_dist_ratio = 0.7;
       FrameId loop_fid = query_result[0].first.frame_id;
+      std::cout << "BoW query result: " << loop_fid << " with "
+                << query_result[0].second << " score \n";
 
-      if (query_result[0].second >
-          second_best_dist_ratio * query_result[1].second) {
+      if ((query_result[0].second < 1.5 &&
+           query_result[1].second >
+               second_best_dist_ratio * query_result[0].second)) {
         if (loop_candidates.find(loop_fid) != loop_candidates.end()) {
           loop_candidates[loop_fid] &= true;
         } else {

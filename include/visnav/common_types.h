@@ -336,6 +336,7 @@ class CoVisGraph {
   void add_edge(FrameId anchor_kf, GraphEdge edge);
   void add_pose(FrameId kf, Eigen::Matrix4d edge);
   std::vector<GraphEdge> getCovisFrames(FrameId key);
+  std::vector<FrameId> CoVisGraph::find_neighbours(FrameId key, int window);
   bool exists(FrameId key);
 };
 
@@ -365,6 +366,12 @@ void CoVisGraph::add_pose(FrameId key, Eigen::Matrix4d value) {
     poses.emplace(std::make_pair(key, value));
   } else {
     poses.emplace(std::make_pair(key, value));
+  }
+}
+
+std::vector<FrameId> CoVisGraph::find_neighbours(FrameId key, int window) {
+  std::vector<FrameId> neigbours;
+  for (auto kv : edges.at(key)) {
   }
 }
 

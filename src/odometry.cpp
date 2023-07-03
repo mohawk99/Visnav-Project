@@ -964,7 +964,7 @@ bool next_step() {
 
         /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
 
-        int inlier_threshold = 70;  // TEMP check
+        int inlier_threshold = 20;  // TEMP check
         bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
 
         if (covis) {

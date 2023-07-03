@@ -191,6 +191,10 @@ pangolin::Var<bool> show_cameras3d("hidden.show_cameras", true, true);
 pangolin::Var<bool> show_points3d("hidden.show_points", true, true);
 pangolin::Var<bool> show_old_points3d("hidden.show_old_points3d", true, true);
 
+
+
+pangolin::Var<double> relative_pose_ransac_thresh("hidden.5pt_thresh", 5e-5,1e-10, 1, true);
+
 //////////////////////////////////////////////
 /// Feature extraction and matching options
 
@@ -940,8 +944,9 @@ bool next_step() {
         BOW_DB.insert(FrameCamId(candidate_kf, 0), cand_kf_bow);
 
         std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
+        MatchData md1;
         matchDescriptors(kdl_candidate.corner_descriptors,
-                         kdl.corner_descriptors, desc_matches, MATCH_THRESHOLD,
+                         kdl.corner_descriptors, md1.matches, MATCH_THRESHOLD,
                          DIST_2_BEST);
 
         typedef std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>
@@ -950,22 +955,40 @@ bool next_step() {
         /** TODO: For each FID pair in desc_matches,
          * populate a list of corresponding kp_coordinates pairs
          * that will be passed on to the RANSAC optimization **/
+
         KeypointCoordinatePairs kp_corner_matches;
 
-        for (auto& match : desc_matches) {
-          auto cand_corner = kdl_candidate.corners[match.first];
-          auto current_corner = kdl.corners[match.second];
-          kp_corner_matches.push_back(
-              std::make_pair(cand_corner, current_corner));
-        }
+        // for (auto& match : desc_matches) {
+        //   auto cand_corner = kdl_candidate.corners[match.first];
+        //   auto current_corner = kdl.corners[match.second];
+        //   kp_corner_matches.push_back(
+        //       std::make_pair(cand_corner, current_corner));
+        // }
 
         /** TODO: Pass kp_corner_matches to find transformation using RANSAC
          * here*/
 
         /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
 
-        int inlier_threshold = 70;  // TEMP check
-        bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+        int inlier_threshold = 15;  // TEMP check
+        // bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+
+
+         if (int(md.matches.size()) > inlier_threshold) {
+            findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0], calib_cam.intrinsics[0],relative_pose_ransac_thresh,inlier_threshold, md1);
+        }
+        // bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+        bool covis = md1.inliers.size() > inlier_threshold ? true : false;
+
+        if (covis) {
+            for (auto& match : md1.inliers) {
+                auto cand_corner = kdl_candidate.corners[match.first];
+                auto current_corner = kdl.corners[match.second];
+                kp_corner_matches.push_back(
+              std::make_pair(current_corner, cand_corner));
+            }
+         // covis_graph.update(ckf, candidate_kf);
+        }
 
         if (covis) {
           GraphEdge covis_edge;

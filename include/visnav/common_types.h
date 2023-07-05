@@ -337,6 +337,8 @@ class CoVisGraph {
   void add_pose(FrameId kf, Eigen::Matrix4d edge);
   std::vector<GraphEdge> getCovisFrames(FrameId key);
   std::vector<FrameId> find_neighbours(FrameId key, int window);
+  void extendFrameIds(std::vector<FrameId>& originalVector,
+                      std::vector<GraphEdge>& extensionVector);
   bool exists(FrameId key);
 };
 
@@ -358,6 +360,13 @@ void CoVisGraph::add_edge(FrameId key, GraphEdge value) {
   }
 }
 
+void CoVisGraph::extendFrameIds(std::vector<FrameId>& originalVector,
+                                std::vector<GraphEdge>& extensionVector) {
+  for (auto edge : extensionVector) {
+    originalVector.push_back(edge.value);
+  }
+}
+
 void CoVisGraph::add_pose(FrameId key, Eigen::Matrix4d value) {
   // Check if the key already exists
   auto it = poses.find(key);
@@ -371,7 +380,18 @@ void CoVisGraph::add_pose(FrameId key, Eigen::Matrix4d value) {
 
 std::vector<FrameId> CoVisGraph::find_neighbours(FrameId key, int window) {
   std::vector<FrameId> neighbours;
-  for (auto kv : edges.at(key)) {
+  int timeout = window;
+  if (CoVisGraph ::exists(key)) {
+    std::vector<GraphEdge> key_edges = edges.at(key);
+    extendFrameIds(neighbours, key_edges);
+    for (auto v : key_edges) {
+      if (CoVisGraph ::exists(v.value)) {
+        extendFrameIds(
+            neighbours,
+            edges.at(v.value));  // ORB-SLAM adds neighbours ~ 30, but
+                                 // here only 1-level is considered
+      }
+    }
   }
   return neighbours;
 }

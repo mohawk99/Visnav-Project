@@ -913,9 +913,9 @@ bool next_step() {
     const int MATCH_THRESHOLD = 70;
     const double DIST_2_BEST = 1.2;
     bool new_keyframe_added = kf_frames.size() > num_keyframes;
+    auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
 
-    if (new_keyframe_added) {
-      auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
+    if (new_keyframe_added && covis_candidates.size() > 0) {
       FrameId ckf = *covis_candidates.begin();
       KeypointsData kdl = feature_corners[FrameCamId(ckf, 0)];
 
@@ -926,7 +926,8 @@ bool next_step() {
 
       std::cout << "New Keyframe Added: " << ckf << "\n";
 
-      std::cout << "Current KeyFrame: " << ckf << " | Candidate KeyFrames: ";
+      std::cout << "Current KeyFrame: " << ckf << " | Candidate KeyFrames"
+                << "(" << covis_candidates.size() << "): ";
 
       for (auto& candidate_kf : covis_candidates) {
         if (candidate_kf == ckf) continue;
@@ -985,45 +986,56 @@ bool next_step() {
 
       /** TODO: Loop Candidate Selection*/
       int keeptopk = 3;
+      int theta_min = 30;
+      auto neighbours = covis_graph.find_neighbours(ckf, keeptopk);
+
       BowQueryResult query_result;
-      BOW_DB.query(kf_bow, keeptopk + 1,
+      BOW_DB.query(kf_bow, theta_min + 1,
                    query_result);  // + 1 because selfmatch will be discarded
+      query_result.erase(query_result.begin());  // Discard self match
 
-      for (auto it = query_result.begin(); it != query_result.end(); it++) {
-        FrameId it_fid = it->first.frame_id;
-        if (it_fid == ckf) {
-          std::cout << "Erasing self-match for " << it_fid << " | "
-                    << it->second << "\n";
-          query_result.erase(it);  // Discard self match
-          break;
+      // Use a variant of ORB-SLAM paper
+      double min_score = -1;
+      for (auto kv : query_result) {
+        FrameId fid = kv.first.frame_id;
+        double score = kv.second;
+
+        bool is_neighbour = std::find(neighbours.begin(), neighbours.end(),
+                                      fid) != neighbours.end();
+
+        if (is_neighbour) {
+          if (min_score == -1 || score <= min_score) {
+            min_score = score;
+          }
         }
       }
+      std::cout << ckf << " Loop Min Score" << min_score << "\n";
 
-      //  Use second best match distance criteria
+      std::vector<FrameId> filtered_candidates;
 
-      float second_best_dist_ratio = 0.7;
-      FrameId loop_fid = query_result[0].first.frame_id;
-      std::cout << "BoW query result: " << loop_fid << " with "
-                << query_result[0].second << " score \n";
+      for (auto kv : query_result) {
+        FrameId fid = kv.first.frame_id;
+        double score = kv.second;
 
-      if ((query_result[0].second < 1.5 &&
-           query_result[1].second >
-               second_best_dist_ratio * query_result[0].second)) {
-        if (loop_candidates.find(loop_fid) != loop_candidates.end()) {
-          loop_candidates[loop_fid] &= true;
+        bool is_direct_edge =
+            std::find(covis_candidates.begin(), covis_candidates.end(), fid) !=
+            covis_candidates.end();
+
+        if (score <= min_score && !is_direct_edge) {
+          if (loop_candidates.find(fid) != loop_candidates.end()) {
+            loop_candidates[fid] &= true;
+          } else {
+            loop_candidates[fid] = true;
+          }
         } else {
-          loop_candidates[loop_fid] = true;
+          if (loop_candidates.find(fid) != loop_candidates.end()) {
+            loop_candidates[fid] &= false;
+          }
         }
-        loop_consistency_timeout--;
-      } else {
-        // Not a good match
-        if (loop_candidates.find(loop_fid) != loop_candidates.end()) {
-          loop_candidates[loop_fid] &= false;
-        } else {
-          loop_candidates[loop_fid] = false;
-        }
-        loop_consistency_timeout--;
       }
+      loop_consistency_timeout--;
+
+      // Now we have the minimum_score to filter
 
       if (loop_consistency_timeout == 0) {
         loop_consistency_timeout = patience;

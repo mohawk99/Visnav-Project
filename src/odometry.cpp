@@ -158,6 +158,8 @@ BowVocabulary BOW_VOCAB(vocab_path);
 std::map<FrameId, bool> loop_candidates;
 const int patience = 3;
 int loop_consistency_timeout = patience;
+pangolin::Var<double> relative_pose_ransac_thresh("hidden.5pt_thresh", 5e-5,
+                                                  1e-10, 1, true);
 
 /** END_PROJECT: **/
 
@@ -915,8 +917,11 @@ bool next_step() {
     bool new_keyframe_added = kf_frames.size() > num_keyframes;
     auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
 
+    FrameId ckf = *covis_candidates.begin();
+    // Add cameras for plotting
+    covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
+
     if (new_keyframe_added && covis_candidates.size() > 0) {
-      FrameId ckf = *covis_candidates.begin();
       KeypointsData kdl = feature_corners[FrameCamId(ckf, 0)];
 
       // Add Bow vector
@@ -963,21 +968,22 @@ bool next_step() {
         /** TODO: Pass kp_corner_matches to find transformation using RANSAC
          * here*/
         MatchData ransac_md;
+        int inlier_threshold = 10;  // For RANSAC inliers
+
         findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0],
                           calib_cam.intrinsics[0], relative_pose_ransac_thresh,
                           inlier_threshold, ransac_md);
         // bool covis = kp_corner_matches.size() > inlier_threshold ? true :
         // false;
-        bool covis = md1.inliers.size() > inlier_threshold ? true : false;
+        std::cout << "CKF: " << ckf << " RANSAC inliers "
+                  << ransac_md.inliers.size() << "\n";
+        bool covis = ransac_md.inliers.size() > inlier_threshold ? true : false;
 
         /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
 
         // int inlier_threshold = 20;  // For brute-force matching
         // bool covis = kp_corner_matches.size() > inlier_threshold ? true :
         // false;
-
-        int inlier_threshold = 10;  // For RANSAC inliers
-        bool covis = ransac_md.size() > inlier_threshold ? true : false;
 
         if (covis) {
           GraphEdge covis_edge;
@@ -986,11 +992,6 @@ bool next_step() {
           covis_edge.value = candidate_kf;
 
           covis_graph.add_edge(ckf, covis_edge);
-
-          // Add cameras for plotting
-          covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
-          covis_graph.poses[candidate_kf] =
-              cameras[FrameCamId(candidate_kf, 0)].T_w_c.matrix();
         }
       }
       std::cout << "\n";

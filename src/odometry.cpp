@@ -917,6 +917,14 @@ bool next_step() {
     const int MATCH_THRESHOLD = 70;
     const double DIST_2_BEST = 1.2;
     bool new_keyframe_added = kf_frames.size() > num_keyframes;
+    int no_of_nodes = 0;
+    int no_of_edges = 0;
+
+
+    // Pose graph
+    std::vector<Node> nodes;
+    std::vector<Edge> edges;
+
 
     if (new_keyframe_added) {
       auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
@@ -974,7 +982,7 @@ bool next_step() {
         // bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
 
 
-         if (int(md.matches.size()) > inlier_threshold) {
+         if (int(md1.matches.size()) > inlier_threshold) {
             findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0], calib_cam.intrinsics[0],relative_pose_ransac_thresh,inlier_threshold, md1);
         }
         // bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
@@ -1062,9 +1070,33 @@ bool next_step() {
             std::cout << "Adding Loop Edge from " << ckf << " to " << fid
                       << "\n";
             covis_graph.add_edge(ckf, loop_edge);
+
+        // Pose Graph
+            Node node1, node2;
+            Edge poseEdge;
+
+
+            node1.id = ckf;
+            node1.pose = covis_graph.poses[ckf];
+            nodes.push_back(node1);
+
+            node2.id = fid;
+            node2.pose = covis_graph.poses[fid];
+            nodes.push_back(node2);
+
+
+            poseEdge.id1 = ckf;
+            poseEdge.id2 = fid;
+            poseEdge.T = node1.pose.inverse()*node2.pose;
+            edges.push_back(poseEdge);
+
           }
         }
+
+
       }
+
+
     }
 
     /***********************************************************/

@@ -1035,8 +1035,6 @@ bool next_step() {
       }
       loop_consistency_timeout--;
 
-      // Now we have the minimum_score to filter
-
       if (loop_consistency_timeout == 0) {
         loop_consistency_timeout = patience;
 
@@ -1055,6 +1053,13 @@ bool next_step() {
         }
       }
     }
+
+    /**
+     *  TODO: From loop candidates detect loop
+     *  1) Find similarity transform between current KF and loop candidates
+     *  2) If inliers < threshold, then accept the loop candidate and discard
+     *the others 3) Convert the loop candidate to covisibility edge
+     **/
 
     /***********************************************************/
 

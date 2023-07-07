@@ -962,11 +962,22 @@ bool next_step() {
 
         /** TODO: Pass kp_corner_matches to find transformation using RANSAC
          * here*/
+        MatchData ransac_md;
+        findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0],
+                          calib_cam.intrinsics[0], relative_pose_ransac_thresh,
+                          inlier_threshold, ransac_md);
+        // bool covis = kp_corner_matches.size() > inlier_threshold ? true :
+        // false;
+        bool covis = md1.inliers.size() > inlier_threshold ? true : false;
 
         /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
 
-        int inlier_threshold = 20;  // TEMP check
-        bool covis = kp_corner_matches.size() > inlier_threshold ? true : false;
+        // int inlier_threshold = 20;  // For brute-force matching
+        // bool covis = kp_corner_matches.size() > inlier_threshold ? true :
+        // false;
+
+        int inlier_threshold = 10;  // For RANSAC inliers
+        bool covis = ransac_md.size() > inlier_threshold ? true : false;
 
         if (covis) {
           GraphEdge covis_edge;

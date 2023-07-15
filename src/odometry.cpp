@@ -907,7 +907,7 @@ bool next_step() {
 
     current_pose = cameras[fcidl].T_w_c;
 
-    /******* !!!!!!!!!!!!! COVIS LOGI !!!!!!!!!!!!!!! ***********/
+    /******* !!!!!!!!!!!!! COVIS LOGIC !!!!!!!!!!!!!!! ***********/
 
     /**
      * Add Covisibility Edges here
@@ -929,14 +929,14 @@ bool next_step() {
       BOW_VOCAB.transform(kdl.corner_descriptors, kf_bow);
       BOW_DB.insert(FrameCamId(ckf, 0), kf_bow);
 
-      std::cout << "New Keyframe Added: " << ckf << "\n";
+      // std::cout << "New Keyframe Added: " << ckf << "\n";
 
-      std::cout << "Current KeyFrame: " << ckf << " | Candidate KeyFrames"
-                << "(" << covis_candidates.size() << "): ";
+      // std::cout << "Current KeyFrame: " << ckf << " | Candidate KeyFrames"
+      // << "(" << covis_candidates.size() << "): ";
 
       for (auto& candidate_kf : covis_candidates) {
         if (candidate_kf == ckf) continue;
-        std::cout << candidate_kf << ", ";
+        // std::cout << candidate_kf << ", ";
         KeypointsData kdl_candidate =
             feature_corners[FrameCamId(candidate_kf, 0)];
 
@@ -945,56 +945,28 @@ bool next_step() {
         BOW_VOCAB.transform(kdl_candidate.corner_descriptors, cand_kf_bow);
         BOW_DB.insert(FrameCamId(candidate_kf, 0), cand_kf_bow);
 
-        std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
-        matchDescriptors(kdl_candidate.corner_descriptors,
-                         kdl.corner_descriptors, desc_matches, MATCH_THRESHOLD,
-                         DIST_2_BEST);
-
-        typedef std::vector<std::pair<Eigen::Vector2d, Eigen::Vector2d>>
-            KeypointCoordinatePairs;
-
-        /** TODO: For each FID pair in desc_matches,
-         * populate a list of corresponding kp_coordinates pairs
-         * that will be passed on to the RANSAC optimization **/
-        KeypointCoordinatePairs kp_corner_matches;
-
-        for (auto& match : desc_matches) {
-          auto cand_corner = kdl_candidate.corners[match.first];
-          auto current_corner = kdl.corners[match.second];
-          kp_corner_matches.push_back(
-              std::make_pair(cand_corner, current_corner));
-        }
-
-        /** TODO: Pass kp_corner_matches to find transformation using RANSAC
-         * here*/
+        // std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
         MatchData ransac_md;
-        int inlier_threshold = 10;  // For RANSAC inliers
+        matchDescriptors(kdl_candidate.corner_descriptors,
+                         kdl.corner_descriptors, ransac_md.matches,
+                         MATCH_THRESHOLD, DIST_2_BEST);
 
-        findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0],
-                          calib_cam.intrinsics[0], relative_pose_ransac_thresh,
-                          inlier_threshold, ransac_md);
-        // bool covis = kp_corner_matches.size() > inlier_threshold ? true :
-        // false;
-        std::cout << "CKF: " << ckf << " RANSAC inliers "
-                  << ransac_md.inliers.size() << "\n";
-        bool covis = ransac_md.inliers.size() > inlier_threshold ? true : false;
-
-        /** Check if RANSAC.inliers > min_inliers to consider a covis edge*/
-
-        // int inlier_threshold = 20;  // For brute-force matching
-        // bool covis = kp_corner_matches.size() > inlier_threshold ? true :
-        // false;
+        // Use brute-force matching for covisibility
+        int min_matches = 20;
+        bool covis = ransac_md.matches.size() > min_matches ? true : false;
 
         if (covis) {
           GraphEdge covis_edge;
           covis_edge.type = 1;
-          covis_edge.weight = kp_corner_matches.size();
+          covis_edge.weight = ransac_md.matches.size();
           covis_edge.value = candidate_kf;
-
+          covis_edge.desc_matches = ransac_md.matches;
+          std::cout << "Adding Covis Edge from " << ckf << " to "
+                    << candidate_kf << "\n";
           covis_graph.add_edge(ckf, covis_edge);
         }
       }
-      std::cout << "\n";
+      // std::cout << "\n";
 
       /** TODO: Loop Candidate Selection*/
       int keeptopk = 3;
@@ -1021,8 +993,6 @@ bool next_step() {
           }
         }
       }
-      std::cout << ckf << " Loop Min Score" << min_score << "\n";
-
       std::vector<FrameId> filtered_candidates;
 
       for (auto kv : query_result) {
@@ -1046,32 +1016,80 @@ bool next_step() {
         }
       }
       loop_consistency_timeout--;
-
       if (loop_consistency_timeout == 0) {
         loop_consistency_timeout = patience;
-
+        std::vector<FrameId> keysToErase;
         for (auto kv : loop_candidates) {
           FrameId fid = kv.first;
           bool is_consistent = kv.second;
-
-          if (is_consistent) {
-            GraphEdge loop_edge;
-            loop_edge.type = 2;
-            loop_edge.value = fid;
-            std::cout << "Adding Loop Edge from " << ckf << " to " << fid
-                      << "\n";
-            covis_graph.add_edge(ckf, loop_edge);
+          if (!is_consistent) {
+            if (loop_candidates.find(fid) != loop_candidates.end()) {
+              keysToErase.push_back(fid);
+            }
           }
+        }
+        for (const FrameId& fid : keysToErase) {
+          loop_candidates.erase(fid);
         }
       }
     }
-
     /**
-     *  TODO: From loop candidates detect loop
+     *  From loop candidates detect loop
      *  1) Find similarity transform between current KF and loop candidates
      *  2) If inliers < threshold, then accept the loop candidate and discard
      *the others 3) Convert the loop candidate to covisibility edge
      **/
+
+    int inlier_threshold = 15;  // For RANSAC inliers
+    for (auto kv : loop_candidates) {
+      FrameId fid = kv.first;
+      GraphEdge edge = covis_graph.find_edge(ckf, fid);
+
+      auto kdl_candidate = feature_corners[FrameCamId(fid, 0)];
+      MatchData loop_md;
+      // loop_md.matches = edge.desc_matches;
+
+      matchDescriptors(kdl.corner_descriptors, kdl_candidate.corner_descriptors,
+                       loop_md.matches, MATCH_THRESHOLD, DIST_2_BEST);
+      // std::cout << " Matches for Loop Candidate: " << fid << " --> "
+      //           << loop_md.matches.size() << "\n";
+      findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0],
+                        calib_cam.intrinsics[0], relative_pose_ransac_thresh,
+                        inlier_threshold, loop_md);
+
+      if (loop_md.inliers.size() > inlier_threshold) {
+        GraphEdge loop_edge;
+        loop_edge.type = 2;
+        loop_edge.value = fid;
+        std::cout << "Adding Loop Edge from " << ckf << " to " << fid << "\n";
+        covis_graph.add_edge(ckf, loop_edge);
+
+        // Also add covisibility edges
+        if (covis_graph.exists(fid)) {
+          auto loop_covis_frames = covis_graph.getCovisFrames(fid);
+          for (auto loop_covis_kf : loop_covis_frames) {
+            covis_graph.add_edge(ckf, loop_covis_kf);
+            /*** QUESTION: Do I need to add the other way around too? */
+          }
+        }
+
+        /** LOOP CLOSURE **/
+        // Move all of landmark observations from current frame to the loop
+        // candidate
+        for (auto& lm : landmarks) {
+          auto track_id = lm.first;
+          auto landmark = lm.second;
+
+          auto lm_obs = landmark.obs;
+
+          // Find the observations in the current KF.
+          auto current_obs = lm_obs[FrameCamId(ckf, 0)];
+          lm.second.obs[FrameCamId(fid, 0)] = current_obs;
+        }
+        /** TODO: Error here **/
+        // optimize();  // Call BA with updated poses from PGO and Loop Closure
+      }
+    }
 
     /***********************************************************/
 

@@ -320,12 +320,14 @@ struct GraphEdge {
   int type;       // 1 for Covis, 2 for Loop
   float weight;   // typically inliers
   FrameId value;  // The covis/loop candidate frame
+  std::vector<std::pair<FeatureId, FeatureId>>
+      desc_matches;  // Matches between frames
 };
 
 class CoVisGraph {
  private:
   bool temp;
-  //
+
  public:
   std::map<FrameId, std::vector<GraphEdge>> edges;  // Rethink
   std::map<FrameId, Eigen::Matrix4d> poses;  // For plotting camera centers
@@ -340,11 +342,26 @@ class CoVisGraph {
   void extendFrameIds(std::vector<FrameId>& originalVector,
                       std::vector<GraphEdge>& extensionVector);
   bool exists(FrameId key);
+  GraphEdge find_edge(FrameId from, FrameId to);
 };
 
 CoVisGraph::CoVisGraph() {}
 
 CoVisGraph::~CoVisGraph() {}
+
+GraphEdge CoVisGraph::find_edge(FrameId from, FrameId to) {
+  if (CoVisGraph::exists(from)) {
+    std::vector<GraphEdge>& edgeList = edges[from];
+    for (const GraphEdge& edge : edgeList) {
+      if (edge.value == to) {
+        return edge;
+      }
+    }
+  }
+
+  // If the edge is not found, return an empty GraphEdge
+  return GraphEdge();
+}
 
 void CoVisGraph::add_edge(FrameId key, GraphEdge value) {
   // Check if the key already exists

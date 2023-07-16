@@ -1123,6 +1123,11 @@ bool next_step() {
         // optimize();  // Call BA with updated poses from PGO and Loop Closure
       }
 
+        std::vector<Node> sortedNodes(nodes); 
+        std::sort(sortedNodes.begin(), sortedNodes.end(), [](const Node& node1, const Node& node2) {
+            return node1.id < node2.id;
+        });
+
         const int opt_window = 3;
       ceres::Problem problem;
       // Eigen::Matrix4d multi_T = Eigen::Matrix4d::Identity();
@@ -1130,15 +1135,15 @@ bool next_step() {
       int edges_connected[opt_window] = {0};
 
         // Iterate through the nodes
-      for (std::size_t i = 0; i < (nodes.size()-1); ++i) {
-        const Node& current_node = nodes[i];
+      for (std::size_t i = 0; i < (sortednodes.size()-1); ++i) {
+        const Node& current_node = sortednodes[i];
         const int& node_id1 = current_node.id;
         abs_pose1 = current_node.pose;
         edges_connected[0] = node_id1;
 
         // See the next nodes to which it has loop edges with
-        for (std::size_t j = i + 1; j < (nodes.size()-1) && j <= i + opt_window; ++j) {
-            const Node& next_node = nodes[j];
+        for (std::size_t j = i + 1; j < (sortednodes.size()-1) && j <= i + opt_window; ++j) {
+            const Node& next_node = sortednodes[j];
             const int& node_id2 = next_node.id;
             abs_pose2 = next_node.pose;
             edges_connected[j] = node_id2;

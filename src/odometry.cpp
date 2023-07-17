@@ -69,6 +69,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <visnav/bow_db.h>
 #include <visnav/bow_voc.h>
 
+#include <opencv2/opencv.hpp>
+
 using namespace visnav;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -160,6 +162,8 @@ const int patience = 3;
 int loop_consistency_timeout = patience;
 pangolin::Var<double> relative_pose_ransac_thresh("hidden.5pt_thresh", 5e-5,
                                                   1e-10, 1, true);
+
+std::vector<std::pair<FrameId, FrameId>> loop_pairs;
 
 /** END_PROJECT: **/
 
@@ -305,6 +309,48 @@ int main(int argc, char** argv) {
           std::bind(&draw_image_overlay, std::placeholders::_1, idx);
     }
 
+    /****** PROJECT: Loop Edge Pair Visualization *********/
+
+    // // Create a new window for frame plotting
+    // pangolin::CreateWindowAndBind("Loop Edges", 1280, 480);
+
+    // // Create a view for Loop Edgesting
+    // pangolin::View& framePlotView = pangolin::Display("Loop Edges")
+    //                                     .SetBounds(0.0, 1.0, 0.0, 1.0)
+    //                                     .SetLayout(pangolin::LayoutEqual);
+
+    // // Add the view to the window
+    // framePlotView.AddDisplay(pangolin::Display("Loop Edges"));
+
+    // // Set the Loop Edgesting function as the draw function for the view
+    // framePlotView[0].extern_draw_function =
+    //     std::bind(&draw_image_overlay, std::placeholders::_1, 0);
+
+    // // Create a slider for selecting the frame index
+    // pangolin::Var<int> frameSlider("Pair Index", 0, 0, loop_pairs.size() -
+    // 1); framePlotView.AddDisplay(frameSlider);
+
+    // // Main event loop for Loop Edgesting window
+    // while (!pangolin::ShouldQuit()) {
+    //   // Clear the view
+    //   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    //   // Update the frame index based on the slider value
+    //   int frameIndex = frameSlider.Get();
+    //   show_frame1 = frameIndex;
+    //   show_frame2 = frameIndex;
+
+    //   // Render the view
+    //   framePlotView.Render();
+
+    //   // Swap buffers and process events
+    //   pangolin::FinishFrame();
+    // }
+
+    // // Destroy the Loop Edgesting window
+    // pangolin::DestroyWindow("Loop Edges");
+    /*****************************************************/
+
     // 3D visualization (initial camera view optimized to see full map)
     pangolin::OpenGlRenderState camera(
         pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
@@ -398,6 +444,71 @@ int main(int argc, char** argv) {
 
   return 0;
 }
+
+// void plotFrames(const std::vector<cv::Mat>& frames,
+//                 const std::vector<std::pair<int, int>>& indexTuples) {
+//   // Initialize Pangolin
+//   pangolin::CreateWindowAndBind("Frame Plot", 640, 480);
+
+//   // Create a view for the first frame
+//   pangolin::View& view1 = pangolin::CreateDisplay().SetBounds(
+//       0.0, 1.0, pangolin::Attach::Pix(0), pangolin::Attach::Pix(480));
+
+//   // Create a view for the second frame
+//   pangolin::View& view2 = pangolin::CreateDisplay().SetBounds(
+//       0.0, 1.0, pangolin::Attach::Pix(480), pangolin::Attach::Pix(960));
+
+//   // Create a slider for index selection
+//   pangolin::Var<int> indexSlider("ui.index", 0, 0, indexTuples.size() - 1);
+
+//   // Add views and slider to the display
+//   pangolin::Display("Frame Plot").AddDisplay(view1);
+//   pangolin::Display("Frame Plot").AddDisplay(view2);
+//   pangolin::Display("Frame Plot").AddVariable(indexSlider);
+
+//   while (!pangolin::ShouldQuit()) {
+//     // Clear the views
+//     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+//     // Select the index tuple based on the slider value
+//     int tupleIndex = indexSlider.Get();
+//     if (tupleIndex >= 0 && tupleIndex < indexTuples.size()) {
+//       std::pair<int, int> indexTuple = indexTuples[tupleIndex];
+//       int index1 = indexTuple.first;
+//       int index2 = indexTuple.second;
+
+//       // Select the first frame
+//       view1.Activate();
+//       glClearColor(0.0, 0.0, 0.0, 0.0);
+//       glColor3f(1.0, 1.0, 1.0);
+
+//       // Plot the first frame
+//       if (index1 >= 0 && index1 < frames.size()) {
+//         cv::Mat frame1 = frames[index1];
+//         glDrawPixels(frame1.cols, frame1.rows, GL_BGR_EXT, GL_UNSIGNED_BYTE,
+//                      frame1.data);
+//       }
+
+//       // Select the second frame
+//       view2.Activate();
+//       glClearColor(0.0, 0.0, 0.0, 0.0);
+//       glColor3f(1.0, 1.0, 1.0);
+
+//       // Plot the second frame
+//       if (index2 >= 0 && index2 < frames.size()) {
+//         cv::Mat frame2 = frames[index2];
+//         glDrawPixels(frame2.cols, frame2.rows, GL_BGR_EXT, GL_UNSIGNED_BYTE,
+//                      frame2.data);
+//       }
+//     }
+
+//     // Swap frames and process events
+//     pangolin::FinishFrame();
+//   }
+
+//   // Close the window
+//   pangolin::DestroyWindow("Frame Plot");
+// }
 
 // Visualize features and related info on top of the image views
 void draw_image_overlay(pangolin::View& v, size_t view_id) {
@@ -1064,6 +1175,42 @@ bool next_step() {
         std::cout << "Adding Loop Edge from " << ckf << " to " << fid << "\n";
         covis_graph.add_edge(ckf, loop_edge);
 
+        // loop_pairs.push_back(std::make_pair(ckf, fid));
+
+        auto ckf_image = cv::imread(images[FrameCamId(ckf, 0)]);
+        auto fid_image = cv::imread(images[FrameCamId(fid, 0)]);
+
+        // Check if the images were loaded successfully
+        if (ckf_image.empty() || fid_image.empty()) {
+          std::cout << "Failed to load the images." << std::endl;
+          return -1;
+        }
+
+        // Resize the images to have the same height
+        cv::Size targetSize(ckf_image.cols + fid_image.cols, ckf_image.rows);
+        // cv::resize(ckf_image, ckf_image, targetSize);
+        // cv::resize(fid_image, fid_image, targetSize);
+
+        // Create a new image to hold the merged result
+        cv::Mat mergedImage(targetSize.height, targetSize.width,
+                            ckf_image.type());
+
+        // Copy the first image to the left side of the merged image
+        cv::Rect roi1(cv::Rect(0, 0, ckf_image.cols, ckf_image.rows));
+        cv::Mat roickf_image(mergedImage, roi1);
+        ckf_image.copyTo(roickf_image);
+
+        // Copy the second image to the right side of the merged image
+        cv::Rect roi2(
+            cv::Rect(ckf_image.cols, 0, fid_image.cols, fid_image.rows));
+        cv::Mat roifid_image(mergedImage, roi2);
+        fid_image.copyTo(roifid_image);
+
+        // Save the merged image
+        cv::imwrite("data/loop_pairs/" + std::to_string(ckf) + "_" +
+                        std::to_string(fid) + ".jpg",
+                    mergedImage);
+
         // Also add covisibility edges
         if (covis_graph.exists(fid)) {
           auto loop_covis_frames = covis_graph.getCovisFrames(fid);
@@ -1083,8 +1230,16 @@ bool next_step() {
           auto lm_obs = landmark.obs;
 
           // Find the observations in the current KF.
-          auto current_obs = lm_obs[FrameCamId(ckf, 0)];
-          lm.second.obs[FrameCamId(fid, 0)] = current_obs;
+          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
+              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
+            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
+            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+            lm.second.obs[FrameCamId(fid, 0)] = current_obs_left;
+            lm.second.obs[FrameCamId(fid, 1)] = current_obs_right;
+
+            lm.second.obs.erase(FrameCamId(ckf, 0));
+            lm.second.obs.erase(FrameCamId(ckf, 1));
+          }
         }
         /** TODO: Error here **/
         // optimize();  // Call BA with updated poses from PGO and Loop Closure
@@ -1223,7 +1378,10 @@ void optimize() {
   // Fix oldest two cameras to fix SE3 and scale gauge. Making the whole second
   // camera constant is a bit suboptimal, since we only need 1 DoF, but it's
   // simple and the initial poses should be good from calibration.
+  // std::cout << kf_frames.size() << "\n";
   FrameId fid = *(kf_frames.begin());
+  std::cout << "HEREEEEEEEEEEEEEEEEEEE\n";
+
   // std::cout << "fid " << fid << std::endl;
 
   // Prepare bundle adjustment
@@ -1245,7 +1403,6 @@ void optimize() {
 
     bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
                       cameras_opt, landmarks_opt);
-
     opt_finished = true;
     opt_running = false;
   }));

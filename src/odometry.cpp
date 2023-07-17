@@ -1223,15 +1223,14 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
-    /** LOOP CLOSURE **/
-    for (auto loop_fid : accepted_loop_cands) {
-      // Move all of landmark observations from current frame to the loop
-      // candidate
-      if (!opt_running && opt_finished) {
+    /** LOOPCLOSURE: **/
+    if (!opt_running && opt_finished) {
+      for (auto loop_fid : accepted_loop_cands) {
+        // Move all of landmark observations from current frame to the loop
+        // candidate
         for (auto& lm : landmarks) {
           auto track_id = lm.first;
           auto landmark = lm.second;
-
           auto lm_obs = landmark.obs;
 
           // Find the observations in the current KF.
@@ -1246,8 +1245,8 @@ bool next_step() {
             lm.second.obs.erase(FrameCamId(ckf, 1));
           }
         }
-        /** TODO: Error here **/
-        optimize();  // Call BA with updated poses from PGO and LoopClosure
+        optimize();  // Call BA with updated poses from PGO and landmarks from
+                     // LoopClosure
       }
     } /***********************************************************/
 
@@ -1383,7 +1382,6 @@ void optimize() {
   // simple and the initial poses should be good from calibration.
   // std::cout << kf_frames.size() << "\n";
   FrameId fid = *(kf_frames.begin());
-  std::cout << "HEREEEEEEEEEEEEEEEEEEE\n";
 
   // std::cout << "fid " << fid << std::endl;
 

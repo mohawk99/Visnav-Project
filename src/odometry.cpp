@@ -1223,26 +1223,28 @@ bool next_step() {
         /** LOOP CLOSURE **/
         // Move all of landmark observations from current frame to the loop
         // candidate
-        for (auto& lm : landmarks) {
-          auto track_id = lm.first;
-          auto landmark = lm.second;
+        if (!opt_running && opt_finished) {
+          for (auto& lm : landmarks) {
+            auto track_id = lm.first;
+            auto landmark = lm.second;
 
-          auto lm_obs = landmark.obs;
+            auto lm_obs = landmark.obs;
 
-          // Find the observations in the current KF.
-          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
-            lm.second.obs[FrameCamId(fid, 0)] = current_obs_left;
-            lm.second.obs[FrameCamId(fid, 1)] = current_obs_right;
+            // Find the observations in the current KF.
+            if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
+                lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
+              auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
+              auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+              lm.second.obs[FrameCamId(fid, 0)] = current_obs_left;
+              lm.second.obs[FrameCamId(fid, 1)] = current_obs_right;
 
-            lm.second.obs.erase(FrameCamId(ckf, 0));
-            lm.second.obs.erase(FrameCamId(ckf, 1));
+              lm.second.obs.erase(FrameCamId(ckf, 0));
+              lm.second.obs.erase(FrameCamId(ckf, 1));
+            }
           }
+          /** TODO: Error here **/
+          optimize();  // Call BA with updated poses from PGO and LoopClosure
         }
-        /** TODO: Error here **/
-        // optimize();  // Call BA with updated poses from PGO and Loop Closure
       }
     }
 

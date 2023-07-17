@@ -1135,15 +1135,15 @@ bool next_step() {
       int edges_connected[opt_window] = {0};
 
         // Iterate through the nodes
-      for (std::size_t i = 0; i < (sortednodes.size()-1); ++i) {
-        const Node& current_node = sortednodes[i];
+      for (std::size_t i = 0; i < (sortedNodes.size()-1); ++i) {
+        const Node& current_node = sortedNodes[i];
         const int& node_id1 = current_node.id;
         abs_pose1 = current_node.pose;
         edges_connected[0] = node_id1;
 
         // See the next nodes to which it has loop edges with
-        for (std::size_t j = i + 1; j < (sortednodes.size()-1) && j <= i + opt_window; ++j) {
-            const Node& next_node = sortednodes[j];
+        for (std::size_t j = i + 1; j < (sortedNodes.size()-1) && j <= i + opt_window; ++j) {
+            const Node& next_node = sortedNodes[j];
             const int& node_id2 = next_node.id;
             abs_pose2 = next_node.pose;
             edges_connected[j] = node_id2;

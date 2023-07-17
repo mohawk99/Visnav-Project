@@ -165,6 +165,8 @@ pangolin::Var<double> relative_pose_ransac_thresh("hidden.5pt_thresh", 5e-5,
 
 std::vector<std::pair<FrameId, FrameId>> loop_pairs;
 
+bool SAVE_LOOP_PAIRS = false;
+
 /** END_PROJECT: **/
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1029,6 +1031,7 @@ bool next_step() {
     auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
 
     FrameId ckf = *covis_candidates.begin();
+
     // Add cameras for plotting
     covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
 
@@ -1075,6 +1078,20 @@ bool next_step() {
           std::cout << "Adding Covis Edge from " << ckf << " to "
                     << candidate_kf << "\n";
           covis_graph.add_edge(ckf, covis_edge);
+        }
+      }
+      // Covis Consistency check
+      if (covis_candidates.size() > 1) {
+        FrameId prev_frame = *std::next(covis_candidates.begin(), 1);
+        std::cout << "Current Frame: " << ckf
+                  << " | Previous Frame: " << prev_frame << "\n";
+        auto ckf_covis_edge = covis_graph.find_edge(ckf, prev_frame);
+        if (ckf_covis_edge.value == -1) {
+          GraphEdge e;
+          e.type = 1;
+          e.value = prev_frame;
+
+          covis_graph.add_edge(ckf, e);
         }
       }
       // std::cout << "\n";
@@ -1139,6 +1156,7 @@ bool next_step() {
             }
           }
         }
+
         for (const FrameId& fid : keysToErase) {
           loop_candidates.erase(fid);
         }
@@ -1151,7 +1169,7 @@ bool next_step() {
      *the others 3) Convert the loop candidate to covisibility edge
      **/
 
-    int inlier_threshold = 15;  // For RANSAC inliers
+    int inlier_threshold = 20;  // For RANSAC inliers
     std::vector<FrameId> accepted_loop_cands;
     for (auto kv : loop_candidates) {
       FrameId fid = kv.first;
@@ -1176,42 +1194,53 @@ bool next_step() {
         std::cout << "Adding Loop Edge from " << ckf << " to " << fid << "\n";
         covis_graph.add_edge(ckf, loop_edge);
 
-        // loop_pairs.push_back(std::make_pair(ckf, fid));
+        /** LOOP_EDGE_CONSISTENCY: Add loop edge with neighbours of current
+         * frame**/
+        auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
+        for (auto ckf_covis_fid : ckf_covis_frames) {
+          GraphEdge covis_loop_edge;
+          covis_loop_edge.type = 2;
+          covis_loop_edge.value = fid;
 
-        auto ckf_image = cv::imread(images[FrameCamId(ckf, 0)]);
-        auto fid_image = cv::imread(images[FrameCamId(fid, 0)]);
-
-        // Check if the images were loaded successfully
-        if (ckf_image.empty() || fid_image.empty()) {
-          std::cout << "Failed to load the images." << std::endl;
-          return -1;
+          covis_graph.add_edge(ckf_covis_fid.value, covis_loop_edge);
         }
 
-        // Resize the images to have the same height
-        cv::Size targetSize(ckf_image.cols + fid_image.cols, ckf_image.rows);
-        // cv::resize(ckf_image, ckf_image, targetSize);
-        // cv::resize(fid_image, fid_image, targetSize);
+        /** FEATURE: writing loop pairs to disk**/
+        if (SAVE_LOOP_PAIRS) {
+          auto ckf_image = cv::imread(images[FrameCamId(ckf, 0)]);
+          auto fid_image = cv::imread(images[FrameCamId(fid, 0)]);
 
-        // Create a new image to hold the merged result
-        cv::Mat mergedImage(targetSize.height, targetSize.width,
-                            ckf_image.type());
+          // Check if the images were loaded successfully
+          if (ckf_image.empty() || fid_image.empty()) {
+            std::cout << "Failed to load the images." << std::endl;
+            return -1;
+          }
 
-        // Copy the first image to the left side of the merged image
-        cv::Rect roi1(cv::Rect(0, 0, ckf_image.cols, ckf_image.rows));
-        cv::Mat roickf_image(mergedImage, roi1);
-        ckf_image.copyTo(roickf_image);
+          // Resize the images to have the same height
+          cv::Size targetSize(ckf_image.cols + fid_image.cols, ckf_image.rows);
+          // cv::resize(ckf_image, ckf_image, targetSize);
+          // cv::resize(fid_image, fid_image, targetSize);
 
-        // Copy the second image to the right side of the merged image
-        cv::Rect roi2(
-            cv::Rect(ckf_image.cols, 0, fid_image.cols, fid_image.rows));
-        cv::Mat roifid_image(mergedImage, roi2);
-        fid_image.copyTo(roifid_image);
+          // Create a new image to hold the merged result
+          cv::Mat mergedImage(targetSize.height, targetSize.width,
+                              ckf_image.type());
 
-        // Save the merged image
-        cv::imwrite("data/loop_pairs/" + std::to_string(ckf) + "_" +
-                        std::to_string(fid) + ".jpg",
-                    mergedImage);
+          // Copy the first image to the left side of the merged image
+          cv::Rect roi1(cv::Rect(0, 0, ckf_image.cols, ckf_image.rows));
+          cv::Mat roickf_image(mergedImage, roi1);
+          ckf_image.copyTo(roickf_image);
 
+          // Copy the second image to the right side of the merged image
+          cv::Rect roi2(
+              cv::Rect(ckf_image.cols, 0, fid_image.cols, fid_image.rows));
+          cv::Mat roifid_image(mergedImage, roi2);
+          fid_image.copyTo(roifid_image);
+
+          // Save the merged image
+          cv::imwrite("data/loop_pairs/" + std::to_string(ckf) + "_" +
+                          std::to_string(fid) + ".jpg",
+                      mergedImage);
+        }
         // Also add covisibility edges
         if (covis_graph.exists(fid)) {
           auto loop_covis_frames = covis_graph.getCovisFrames(fid);

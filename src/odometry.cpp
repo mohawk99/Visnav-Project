@@ -1013,12 +1013,11 @@ bool next_step() {
                       landmarks, next_landmark_id);
 
     remove_old_keyframes(fcidl, max_num_kfs, cameras, landmarks, old_landmarks,
-                         kf_frames);
+                        kf_frames);
     optimize();
-
     current_pose = cameras[fcidl].T_w_c;
 
-    /******* !!!!!!!!!!!!! COVIS LOGIC !!!!!!!!!!!!!!! ***********/
+   /******* !!!!!!!!!!!!! COVIS LOGIC !!!!!!!!!!!!!!! ***********/
 
     /**
      * Add Covisibility Edges here
@@ -1027,10 +1026,13 @@ bool next_step() {
     const double DIST_2_BEST = 1.2;
     bool new_keyframe_added = kf_frames.size() > num_keyframes;
     auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
+    FrameId ckf;
 
-    FrameId ckf = *covis_candidates.begin();
-    // Add cameras for plotting
-    covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
+    if (!covis_candidates.empty() && !covis_graph.edges.empty()) {
+        ckf = *covis_candidates.begin();
+        // Add cameras for plotting
+       covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
+    }
 
     if (new_keyframe_added && covis_candidates.size() > 0) {
       KeypointsData kdl = feature_corners[FrameCamId(ckf, 0)];
@@ -1091,10 +1093,11 @@ bool next_step() {
 
       // Use a variant of ORB-SLAM paper
       double min_score = -1;
+      if(!query_result.empty()){
       for (auto kv : query_result) {
         FrameId fid = kv.first.frame_id;
         double score = kv.second;
-
+        if (!neighbours.empty()) {
         bool is_neighbour = std::find(neighbours.begin(), neighbours.end(),
                                       fid) != neighbours.end();
 
@@ -1103,9 +1106,11 @@ bool next_step() {
             min_score = score;
           }
         }
+        }
       }
+      
       std::vector<FrameId> filtered_candidates;
-
+       if (!covis_candidates.empty() && !loop_candidates.empty()) {  
       for (auto kv : query_result) {
         FrameId fid = kv.first.frame_id;
         double score = kv.second;
@@ -1126,10 +1131,13 @@ bool next_step() {
           }
         }
       }
+       }
+      }
       loop_consistency_timeout--;
       if (loop_consistency_timeout == 0) {
         loop_consistency_timeout = patience;
         std::vector<FrameId> keysToErase;
+        if (!loop_candidates.empty()) { 
         for (auto kv : loop_candidates) {
           FrameId fid = kv.first;
           bool is_consistent = kv.second;
@@ -1138,6 +1146,7 @@ bool next_step() {
               keysToErase.push_back(fid);
             }
           }
+        }
         }
         for (const FrameId& fid : keysToErase) {
           loop_candidates.erase(fid);
@@ -1153,6 +1162,7 @@ bool next_step() {
 
     int inlier_threshold = 15;  // For RANSAC inliers
     std::vector<FrameId> accepted_loop_cands;
+    if (!loop_candidates.empty() && !covis_graph.edges.empty() && !kdl.empty()) { 
     for (auto kv : loop_candidates) {
       FrameId fid = kv.first;
       GraphEdge edge = covis_graph.find_edge(ckf, fid);
@@ -1223,32 +1233,33 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
-    /** LOOPCLOSURE: **/
-    if (!opt_running && opt_finished) {
-      for (auto loop_fid : accepted_loop_cands) {
-        // Move all of landmark observations from current frame to the loop
-        // candidate
-        for (auto& lm : landmarks) {
-          auto track_id = lm.first;
-          auto landmark = lm.second;
-          auto lm_obs = landmark.obs;
-
-          // Find the observations in the current KF.
-          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
-            lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
-            lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
-
-            lm.second.obs.erase(FrameCamId(ckf, 0));
-            lm.second.obs.erase(FrameCamId(ckf, 1));
-          }
-        }
-        optimize();  // Call BA with updated poses from PGO and landmarks from
-                     // LoopClosure
-      }
-    } /***********************************************************/
+    }
+//    /** LOOPCLOSURE: **/
+//    if (!opt_running && opt_finished) {
+//      for (auto loop_fid : accepted_loop_cands) {
+//        // Move all of landmark observations from current frame to the loop
+//        // candidate
+//        for (auto& lm : landmarks) {
+//          auto track_id = lm.first;
+//          auto landmark = lm.second;
+//          auto lm_obs = landmark.obs;
+//
+//          // Find the observations in the current KF.
+//          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
+//              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
+//            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
+//            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+//            lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+//            lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+//
+//            lm.second.obs.erase(FrameCamId(ckf, 0));
+//            lm.second.obs.erase(FrameCamId(ckf, 1));
+//          }
+//        }
+//        optimize();  // Call BA with updated poses from PGO and landmarks from
+//                     // LoopClosure
+//      }
+//    } /***********************************************************/
 
     // update image views
     change_display_to_image(fcidl);

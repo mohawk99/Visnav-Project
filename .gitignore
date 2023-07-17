@@ -4,6 +4,7 @@ CMakeLists.txt.user
 build
 thirdparty/build-*
 data/V1_01_easy/
+data/loop_pairs/
 *.cereal
 .DS_Store
 *~

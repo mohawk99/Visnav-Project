@@ -360,7 +360,9 @@ GraphEdge CoVisGraph::find_edge(FrameId from, FrameId to) {
   }
 
   // If the edge is not found, return an empty GraphEdge
-  return GraphEdge();
+  GraphEdge empty;
+  empty.value = -1;
+  return empty;
 }
 
 void CoVisGraph::add_edge(FrameId key, GraphEdge value) {

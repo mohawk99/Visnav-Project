@@ -1152,6 +1152,7 @@ bool next_step() {
      **/
 
     int inlier_threshold = 15;  // For RANSAC inliers
+    std::vector<FrameId> accepted_loop_cands;
     for (auto kv : loop_candidates) {
       FrameId fid = kv.first;
       GraphEdge edge = covis_graph.find_edge(ckf, fid);
@@ -1219,36 +1220,36 @@ bool next_step() {
             /*** QUESTION: Do I need to add the other way around too? */
           }
         }
-
-        /** LOOP CLOSURE **/
-        // Move all of landmark observations from current frame to the loop
-        // candidate
-        if (!opt_running && opt_finished) {
-          for (auto& lm : landmarks) {
-            auto track_id = lm.first;
-            auto landmark = lm.second;
-
-            auto lm_obs = landmark.obs;
-
-            // Find the observations in the current KF.
-            if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-                lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-              auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-              auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
-              lm.second.obs[FrameCamId(fid, 0)] = current_obs_left;
-              lm.second.obs[FrameCamId(fid, 1)] = current_obs_right;
-
-              lm.second.obs.erase(FrameCamId(ckf, 0));
-              lm.second.obs.erase(FrameCamId(ckf, 1));
-            }
-          }
-          /** TODO: Error here **/
-          optimize();  // Call BA with updated poses from PGO and LoopClosure
-        }
+        accepted_loop_cands.push_back(fid);
       }
     }
+    /** LOOP CLOSURE **/
+    for (auto loop_fid : accepted_loop_cands) {
+      // Move all of landmark observations from current frame to the loop
+      // candidate
+      if (!opt_running && opt_finished) {
+        for (auto& lm : landmarks) {
+          auto track_id = lm.first;
+          auto landmark = lm.second;
 
-    /***********************************************************/
+          auto lm_obs = landmark.obs;
+
+          // Find the observations in the current KF.
+          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
+              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
+            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
+            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+            lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+            lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+
+            lm.second.obs.erase(FrameCamId(ckf, 0));
+            lm.second.obs.erase(FrameCamId(ckf, 1));
+          }
+        }
+        /** TODO: Error here **/
+        optimize();  // Call BA with updated poses from PGO and LoopClosure
+      }
+    } /***********************************************************/
 
     // update image views
     change_display_to_image(fcidl);

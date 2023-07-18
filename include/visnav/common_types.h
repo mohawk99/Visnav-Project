@@ -316,6 +316,19 @@ using BowDBInverseIndexConcurrent = tbb::concurrent_unordered_map<
  *
  */
 
+struct Node {
+    int id;                 // KF
+    // Eigen::Matrix4d pose;
+    Sophus::SE3d pose;   // Camera pose 
+};
+
+struct Edge {
+    int id1;               // ID of the first KF connected by the edge
+    int id2;               // ID of the second KF connected by the edge
+    // Eigen::Matrix4d T;
+    Sophus::SE3d T;     // Relative transformation matrix
+};
+
 struct GraphEdge {
   int type;       // 1 for Covis, 2 for Loop
   float weight;   // typically inliers

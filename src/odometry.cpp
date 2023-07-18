@@ -1022,6 +1022,16 @@ bool next_step() {
     /**
      * Add Covisibility Edges here
      */
+
+    std::vector<Node> nodes;
+    std::vector<Edge> edges;
+    MatchData md1;
+    Sophus::SE3d ckf_T;
+    Sophus::SE3d abs_pose1;
+    Sophus::SE3d abs_pose2;
+
+
+
     const int MATCH_THRESHOLD = 70;
     const double DIST_2_BEST = 1.2;
     bool new_keyframe_added = kf_frames.size() > num_keyframes;
@@ -1186,8 +1196,27 @@ bool next_step() {
         std::cout << "Adding Loop Edge from " << ckf << " to " << fid << "\n";
         covis_graph.add_edge(ckf, loop_edge);
 
+        Node node1, node2;
+        Edge poseEdge;
 
-        
+        node1.id = ckf;
+        Sophus::SE3d se1(covis_graph.poses[ckf]);
+        node1.pose = se1;
+        nodes.push_back(node1);
+
+        node2.id = fid;
+        Sophus::SE3d se2(covis_graph.poses[fid]);
+        node2.pose = se2;
+        nodes.push_back(node2);
+
+        poseEdge.id1 = ckf;
+        poseEdge.id2 = fid;
+        poseEdge.T = node1.pose.inverse() * node2.pose;
+        poseEdge.T = md1.T_i_j;
+        edges.push_back(poseEdge);
+
+
+
 
         // loop_pairs.push_back(std::make_pair(ckf, fid));
 
@@ -1236,6 +1265,86 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
+    }
+    std::vector<Node> sortedNodes(nodes); 
+        std::sort(sortedNodes.begin(), sortedNodes.end(), [](const Node& node1, const Node& node2) {
+            return node1.id < node2.id;
+        });
+
+      const int opt_window = 3;
+      ceres::Problem problem;
+      // Eigen::Matrix4d multi_T = Eigen::Matrix4d::Identity();
+      Sophus::SE3d multi_T;
+      int edges_connected[opt_window] = {0};
+
+
+
+        // Iterate through the nodes
+      for (std::size_t i = 0; i < (sortedNodes.size()-1) && sortedNodes.size() > 0; ++i) {
+        const Node& current_node = sortedNodes[i];
+        const int& node_id1 = current_node.id;
+        abs_pose1 = current_node.pose;
+        edges_connected[0] = node_id1;
+
+        // See the next nodes to which it has loop edges with
+        for (std::size_t j = i + 1; j < (sortedNodes.size()-1) && j <= i + opt_window; ++j) {
+            const Node& next_node = sortedNodes[j];
+            const int& node_id2 = next_node.id;
+            abs_pose2 = next_node.pose;
+            edges_connected[j] = node_id2;
+
+
+            for (const auto& edge : edges) {
+                if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
+                    (edge.id1 == node_id2 && edge.id2 == node_id1)) {
+
+                    //const Eigen::Matrix4d& relative_T = edge.T;
+                    Sophus::SE3d relative_T = edge.T;
+
+                    for(std::size_t k = 0; k < opt_window && edges_connected[k]!=0; ++k){
+                        for (const auto& edge1 : edges){
+                            if ((edge1.id1 == edges_connected[k+1] && edge1.id2 == edges_connected[k]) || (edge1.id1 == edges_connected[k] && edge1.id2 == edges_connected[k+1])){
+                                multi_T = multi_T * edge1.T;
+                            }
+                        }
+                    }
+
+                    //const Eigen::Matrix4d& delta_T = relative_T - multi_T;
+                    Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
+                    Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
+                    Sophus::SE3d::Tangent delta_lie_algebra = lie_algebra_1 - lie_algebra_2;
+                    Sophus::SE3d delta_T = Sophus::SE3d::exp(delta_lie_algebra);
+
+                    // Optimization
+                    problem.AddParameterBlock(abs_pose1.data(), 4);
+                    problem.AddParameterBlock(abs_pose2.data(), 4);
+
+                    problem.AddParameterBlock(delta_T.data(), 4);
+                    problem.SetParameterBlockConstant(delta_T.data());
+
+                    ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6 ,6 ,6 >(new PoseGraphCostFunctor(delta_T));
+
+                    problem.AddResidualBlock(cost_function,NULL,abs_pose1.data(), abs_pose2.data());
+
+                    ceres::Solver::Options options;
+                    ceres::Solver::Summary summary;
+                    ceres::Solve(options, &problem, &summary);
+
+
+
+                }
+
+                // Set the optimized poses 
+                cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
+                cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
+
+
+                // Set poses for right camera
+                cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
+                cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
+            }
+        }    
+
     }
     /** LOOPCLOSURE: **/
     if (!opt_running && opt_finished) {

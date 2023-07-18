@@ -1162,7 +1162,7 @@ bool next_step() {
 
     int inlier_threshold = 15;  // For RANSAC inliers
     std::vector<FrameId> accepted_loop_cands;
-    if (!loop_candidates.empty() && !covis_graph.edges.empty() && !kdl.empty()) { 
+    if (!loop_candidates.empty() && !covis_graph.edges.empty() ) { 
     for (auto kv : loop_candidates) {
       FrameId fid = kv.first;
       GraphEdge edge = covis_graph.find_edge(ckf, fid);
@@ -1186,41 +1186,44 @@ bool next_step() {
         std::cout << "Adding Loop Edge from " << ckf << " to " << fid << "\n";
         covis_graph.add_edge(ckf, loop_edge);
 
+
+        
+
         // loop_pairs.push_back(std::make_pair(ckf, fid));
 
-        auto ckf_image = cv::imread(images[FrameCamId(ckf, 0)]);
-        auto fid_image = cv::imread(images[FrameCamId(fid, 0)]);
-
-        // Check if the images were loaded successfully
-        if (ckf_image.empty() || fid_image.empty()) {
-          std::cout << "Failed to load the images." << std::endl;
-          return -1;
-        }
-
-        // Resize the images to have the same height
-        cv::Size targetSize(ckf_image.cols + fid_image.cols, ckf_image.rows);
-        // cv::resize(ckf_image, ckf_image, targetSize);
-        // cv::resize(fid_image, fid_image, targetSize);
-
-        // Create a new image to hold the merged result
-        cv::Mat mergedImage(targetSize.height, targetSize.width,
-                            ckf_image.type());
-
-        // Copy the first image to the left side of the merged image
-        cv::Rect roi1(cv::Rect(0, 0, ckf_image.cols, ckf_image.rows));
-        cv::Mat roickf_image(mergedImage, roi1);
-        ckf_image.copyTo(roickf_image);
-
-        // Copy the second image to the right side of the merged image
-        cv::Rect roi2(
-            cv::Rect(ckf_image.cols, 0, fid_image.cols, fid_image.rows));
-        cv::Mat roifid_image(mergedImage, roi2);
-        fid_image.copyTo(roifid_image);
-
-        // Save the merged image
-        cv::imwrite("data/loop_pairs/" + std::to_string(ckf) + "_" +
-                        std::to_string(fid) + ".jpg",
-                    mergedImage);
+//        auto ckf_image = cv::imread(images[FrameCamId(ckf, 0)]);
+//        auto fid_image = cv::imread(images[FrameCamId(fid, 0)]);
+//
+//        // Check if the images were loaded successfully
+//        if (ckf_image.empty() || fid_image.empty()) {
+//          std::cout << "Failed to load the images." << std::endl;
+//          return -1;
+//        }
+//
+//        // Resize the images to have the same height
+//        cv::Size targetSize(ckf_image.cols + fid_image.cols, ckf_image.rows);
+//        // cv::resize(ckf_image, ckf_image, targetSize);
+//        // cv::resize(fid_image, fid_image, targetSize);
+//
+//        // Create a new image to hold the merged result
+//        cv::Mat mergedImage(targetSize.height, targetSize.width,
+//                            ckf_image.type());
+//
+//        // Copy the first image to the left side of the merged image
+//        cv::Rect roi1(cv::Rect(0, 0, ckf_image.cols, ckf_image.rows));
+//        cv::Mat roickf_image(mergedImage, roi1);
+//        ckf_image.copyTo(roickf_image);
+//
+//        // Copy the second image to the right side of the merged image
+//        cv::Rect roi2(
+//            cv::Rect(ckf_image.cols, 0, fid_image.cols, fid_image.rows));
+//        cv::Mat roifid_image(mergedImage, roi2);
+//        fid_image.copyTo(roifid_image);
+//
+//        // Save the merged image
+//        cv::imwrite("data/loop_pairs/" + std::to_string(ckf) + "_" +
+//                        std::to_string(fid) + ".jpg",
+//                    mergedImage);
 
         // Also add covisibility edges
         if (covis_graph.exists(fid)) {
@@ -1234,32 +1237,32 @@ bool next_step() {
       }
     }
     }
-//    /** LOOPCLOSURE: **/
-//    if (!opt_running && opt_finished) {
-//      for (auto loop_fid : accepted_loop_cands) {
-//        // Move all of landmark observations from current frame to the loop
-//        // candidate
-//        for (auto& lm : landmarks) {
-//          auto track_id = lm.first;
-//          auto landmark = lm.second;
-//          auto lm_obs = landmark.obs;
-//
-//          // Find the observations in the current KF.
-//          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-//              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-//            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-//            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
-//            lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
-//            lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
-//
-//            lm.second.obs.erase(FrameCamId(ckf, 0));
-//            lm.second.obs.erase(FrameCamId(ckf, 1));
-//          }
-//        }
-//        optimize();  // Call BA with updated poses from PGO and landmarks from
-//                     // LoopClosure
-//      }
-//    } /***********************************************************/
+    /** LOOPCLOSURE: **/
+    if (!opt_running && opt_finished) {
+      for (auto loop_fid : accepted_loop_cands) {
+        // Move all of landmark observations from current frame to the loop
+        // candidate
+        for (auto& lm : landmarks) {
+          auto track_id = lm.first;
+          auto landmark = lm.second;
+          auto lm_obs = landmark.obs;
+
+          // Find the observations in the current KF.
+          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
+              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
+            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
+            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+            lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+            lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+
+            lm.second.obs.erase(FrameCamId(ckf, 0));
+            lm.second.obs.erase(FrameCamId(ckf, 1));
+          }
+        }
+        optimize();  // Call BA with updated poses from PGO and landmarks from
+                     // LoopClosure
+      }
+    } /***********************************************************/
 
     // update image views
     change_display_to_image(fcidl);

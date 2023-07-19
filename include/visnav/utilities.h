@@ -61,11 +61,11 @@ void DrawLineBetweenCameras(const Eigen::Matrix4d& T_w_c1,
 
 /** EVALUATION: **/
 double alignSVD(const std::vector<int64_t>& filter_t_ns,
-                const Eigen::aligned_allocator<Eigen::Vector3d>& filter_t_w_i,
+                const std::vector<Eigen::Vector3d>& filter_t_w_i,
                 const std::vector<int64_t>& gt_t_ns,
-                Eigen::aligned_allocator<Eigen::Vector3d>& gt_t_w_i) {
-  Eigen::aligned_allocator<Eigen::Vector3d> est_associations;
-  Eigen::aligned_allocator<Eigen::Vector3d> gt_associations;
+                std::vector<Eigen::Vector3d>& gt_t_w_i) {
+  std::vector<Eigen::Vector3d> est_associations;
+  std::vector<Eigen::Vector3d> gt_associations;
 
   for (size_t i = 0; i < filter_t_w_i.size(); i++) {
     int64_t t_ns = filter_t_ns[i];
@@ -83,16 +83,10 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
     double dt_ns = t_ns - gt_t_ns.at(j);
     double int_t_ns = gt_t_ns.at(j + 1) - gt_t_ns.at(j);
 
-    BASALT_ASSERT_STREAM(dt_ns >= 0, "dt_ns " << dt_ns);
-    BASALT_ASSERT_STREAM(int_t_ns > 0, "int_t_ns " << int_t_ns);
-
-    // Skip if the interval between gt larger than 100ms
+    // Skip if the interval between gt is larger than 100ms
     if (int_t_ns > 1.1e8) continue;
 
     double ratio = dt_ns / int_t_ns;
-
-    BASALT_ASSERT(ratio >= 0);
-    BASALT_ASSERT(ratio < 1);
 
     Eigen::Vector3d gt = (1 - ratio) * gt_t_w_i[j] + ratio * gt_t_w_i[j + 1];
 

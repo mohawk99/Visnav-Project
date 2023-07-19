@@ -149,3 +149,35 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
 
   return error;
 }
+
+void parseCSV(const std::string& file_path, std::vector<int64_t>& timestamps,
+              std::vector<Eigen::Vector3d>& positions) {
+  std::ifstream file(file_path);
+  if (!file.is_open()) {
+    std::cerr << "Error: Cannot open file " << file_path << std::endl;
+    return;
+  }
+
+  std::string line;
+  // Skip the first line (header) as it contains column names
+  std::getline(file, line);
+
+  while (std::getline(file, line)) {
+    std::stringstream ss(line);
+    std::string field;
+
+    // Parse the timestamp (first column)
+    std::getline(ss, field, ',');
+    int64_t timestamp = std::stoll(field);
+    timestamps.push_back(timestamp);
+
+    // Parse the next three columns as position vector (gt_t_w_i)
+    Eigen::Vector3d position;
+    for (int i = 0; i < 3; i++) {
+      std::getline(ss, field, ',');
+      position(i) = std::stod(field);
+    }
+
+    positions.push_back(position);
+  }
+}

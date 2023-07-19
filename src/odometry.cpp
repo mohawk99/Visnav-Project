@@ -171,6 +171,10 @@ std::vector<std::pair<FrameId, FrameId>> loop_pairs;
 
 bool SAVE_LOOP_PAIRS = false;
 
+std::vector<Eigen::Vector3d> gt_positions;
+std::vector<Eigen::Vector3d> pred_positions;
+std::vector<int64_t> gt_timestamps;
+
 /** END_PROJECT: **/
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -447,7 +451,11 @@ int main(int argc, char** argv) {
       // nop
     }
   }
-
+  std::cout << "[EVALUATION] Calculating ATE. . . \n";
+  parseCSV(dataset_path + "/state_groundtruth_estimate0/data.csv",
+           gt_timestamps, gt_positions);
+  double ate_error =
+      alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
   return 0;
 }
 
@@ -1227,28 +1235,6 @@ bool next_step() {
         std::cout << "Nodes and Edges for PGO added"
                   << "\n";
 
-        Node node1, node2;
-        Edge poseEdge;
-
-        node1.id = ckf;
-        Sophus::SE3d se1(covis_graph.poses[ckf]);
-        node1.pose = se1;
-        nodes.push_back(node1);
-
-        node2.id = fid;
-        Sophus::SE3d se2(covis_graph.poses[fid]);
-        node2.pose = se2;
-        nodes.push_back(node2);
-
-        poseEdge.id1 = ckf;
-        poseEdge.id2 = fid;
-        poseEdge.T = node1.pose.inverse() * node2.pose;
-        poseEdge.T = md1.T_i_j;
-        edges.push_back(poseEdge);
-
-        std::cout << "Nodes and Edges for PGO added"
-                  << "\n";
-
         /** LOOP_EDGE_CONSISTENCY: Add loop edge with neighbours of current
          * frame**/
         auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
@@ -1327,8 +1313,6 @@ bool next_step() {
       const int& node_id1 = current_node.id;
       abs_pose1 = current_node.pose;
       edges_connected[0] = node_id1;
-      std::cout << "Iterating throguh nodes"
-                << "\n";
 
       // See the next nodes to which it has loop edges with
       for (std::size_t j = i + 1;
@@ -1342,8 +1326,6 @@ bool next_step() {
           if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
               (edge.id1 == node_id2 && edge.id2 == node_id1)) {
             // const Eigen::Matrix4d& relative_T = edge.T;
-            std::cout << "Edge Found"
-                      << "\n";
             Sophus::SE3d relative_T = edge.T;
 
             for (std::size_t k = 0; k < opt_window && edges_connected[k] != 0;
@@ -1354,8 +1336,6 @@ bool next_step() {
                     (edge1.id1 == edges_connected[k] &&
                      edge1.id2 == edges_connected[k + 1])) {
                   multi_T = multi_T * edge1.T;
-                  std::cout << "Multi_T calculated"
-                            << "\n";
                 }
               }
             }
@@ -1368,8 +1348,6 @@ bool next_step() {
             delta_T = Sophus::SE3d::exp(delta_lie_algebra);
 
             // Optimization
-            std::cout << "Before optimizing"
-                      << "\n";
             problem.AddParameterBlock(abs_pose1.data(), 6);
             problem.AddParameterBlock(abs_pose2.data(), 6);
 
@@ -1385,9 +1363,6 @@ bool next_step() {
             ceres::Solver::Options options;
             ceres::Solver::Summary summary;
             ceres::Solve(options, &problem, &summary);
-
-            std::cout << "Ceres Optimized"
-                      << "\n";
           }
 
           // Landmark pose
@@ -1452,6 +1427,9 @@ bool next_step() {
                      // LoopClosure
       }
     } /***********************************************************/
+
+    // Update camera trajectories vector
+    pred_positions.push_back(cameras[FrameCamId(ckf, 0)].T_w_c.translation());
 
     // update image views
     change_display_to_image(fcidl);

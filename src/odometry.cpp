@@ -86,7 +86,8 @@ void optimize();
 void compute_projections();
 
 Eigen::Vector3d extractLandmarkPosition(FrameId frame_id, Landmarks landmarks);
-void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks, Eigen::Vector3d pose);
+void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks,
+                         Eigen::Vector3d pose);
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Constants
@@ -1027,13 +1028,12 @@ bool next_step() {
      * Add Covisibility Edges here
      */
 
-
     std::vector<Node> nodes;
     std::vector<Edge> edges;
     MatchData md1;
     Sophus::SE3d ckf_T;
     Sophus::SE3d abs_pose1;
-    Sophus::SE3d abs_pose2; 
+    Sophus::SE3d abs_pose2;
 
     const int MATCH_THRESHOLD = 70;
     const double DIST_2_BEST = 1.2;
@@ -1207,9 +1207,8 @@ bool next_step() {
         poseEdge.T = md1.T_i_j;
         edges.push_back(poseEdge);
 
-        std::cout << "Nodes and Edges for PGO added" << "\n";
-
-
+        std::cout << "Nodes and Edges for PGO added"
+                  << "\n";
 
         // loop_pairs.push_back(std::make_pair(ckf, fid));
 
@@ -1259,116 +1258,126 @@ bool next_step() {
       }
     }
 
+    std::vector<Node> sortedNodes(nodes);
+    std::sort(sortedNodes.begin(), sortedNodes.end(),
+              [](const Node& node1, const Node& node2) {
+                return node1.id < node2.id;
+              });
 
-        std::vector<Node> sortedNodes(nodes); 
-        std::sort(sortedNodes.begin(), sortedNodes.end(), [](const Node& node1, const Node& node2) {
-            return node1.id < node2.id;
-        });
+    const int opt_window = 3;
+    ceres::Problem problem;
+    Sophus::SE3d multi_T;
+    int edges_connected[opt_window] = {0};
+    Sophus::SE3d delta_T;
 
-      const int opt_window = 3;
-      ceres::Problem problem;
-      Sophus::SE3d multi_T;
-      int edges_connected[opt_window] = {0};
-      Sophus::SE3d delta_T;
+    // Iterate through the nodes
+    for (std::size_t i = 0;
+         i < (sortedNodes.size() - 1) && sortedNodes.size() > 0; ++i) {
+      const Node& current_node = sortedNodes[i];
+      const int& node_id1 = current_node.id;
+      abs_pose1 = current_node.pose;
+      edges_connected[0] = node_id1;
+      std::cout << "Iterating throguh nodes"
+                << "\n";
 
+      // See the next nodes to which it has loop edges with
+      for (std::size_t j = i + 1;
+           j < (sortedNodes.size() - 1) && j <= i + opt_window; ++j) {
+        const Node& next_node = sortedNodes[j];
+        const int& node_id2 = next_node.id;
+        abs_pose2 = next_node.pose;
+        edges_connected[j] = node_id2;
 
-              // Iterate through the nodes
-      for (std::size_t i = 0; i < (sortedNodes.size()-1) && sortedNodes.size() > 0; ++i) {
-        const Node& current_node = sortedNodes[i];
-        const int& node_id1 = current_node.id;
-        abs_pose1 = current_node.pose;
-        edges_connected[0] = node_id1;
-        std::cout << "Iterating throguh nodes" << "\n";
+        // Check if there is an edge between the 2 nodes and then extract the T
+        // matrix
+        for (const auto& edge : edges) {
+          if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
+              (edge.id1 == node_id2 && edge.id2 == node_id1)) {
+            // const Eigen::Matrix4d& relative_T = edge.T;
+            std::cout << "Edge Found"
+                      << "\n";
+            Sophus::SE3d relative_T = edge.T;
 
-        // See the next nodes to which it has loop edges with
-        for (std::size_t j = i + 1; j < (sortedNodes.size()-1) && j <= i + opt_window; ++j) {
-            const Node& next_node = sortedNodes[j];
-            const int& node_id2 = next_node.id;
-            abs_pose2 = next_node.pose;
-            edges_connected[j] = node_id2;
-
-
-            for (const auto& edge : edges) {
-                if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
-                    (edge.id1 == node_id2 && edge.id2 == node_id1)) {
-
-                    //const Eigen::Matrix4d& relative_T = edge.T;
-                    std::cout << "Edge Found" << "\n";
-                    Sophus::SE3d relative_T = edge.T;
-
-                    for(std::size_t k = 0; k < opt_window && edges_connected[k]!=0; ++k){
-                        for (const auto& edge1 : edges){
-                            if ((edge1.id1 == edges_connected[k+1] && edge1.id2 == edges_connected[k]) || (edge1.id1 == edges_connected[k] && edge1.id2 == edges_connected[k+1])){
-                                multi_T = multi_T * edge1.T;
-                                std::cout << "Multi_T calculated" << "\n";
-                            }
-                        }
-                    }
-
-                    //const Eigen::Matrix4d& delta_T = relative_T - multi_T;
-                    Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
-                    Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
-                    Sophus::SE3d::Tangent delta_lie_algebra = lie_algebra_1 - lie_algebra_2;
-                    delta_T = Sophus::SE3d::exp(delta_lie_algebra);
-
-
-                    // Optimization
-                    std::cout << "Before optimizing" << "\n";
-                    problem.AddParameterBlock(abs_pose1.data(), 6);
-                    problem.AddParameterBlock(abs_pose2.data(), 6);
-
-                    problem.AddParameterBlock(delta_T.data(), 6);
-                    problem.SetParameterBlockConstant(delta_T.data());
-
-                    ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6 ,6 ,6 >(new PoseGraphCostFunctor(delta_T));
-                    problem.AddResidualBlock(cost_function,NULL,abs_pose1.data(), abs_pose2.data());
-
-                    ceres::Solver::Options options;
-                    ceres::Solver::Summary summary;
-                    ceres::Solve(options, &problem, &summary);
-
-                    std::cout << "Ceres Optimized" << "\n";
-
-
+            // To calculate T14 = T12*T23*T34
+            for (std::size_t k = 0; k < opt_window && edges_connected[k] != 0;
+                 ++k) {
+              for (const auto& edge1 : edges) {
+                if ((edge1.id1 == edges_connected[k + 1] &&
+                     edge1.id2 == edges_connected[k]) ||
+                    (edge1.id1 == edges_connected[k] &&
+                     edge1.id2 == edges_connected[k + 1])) {
+                  multi_T = multi_T * edge1.T;
+                  std::cout << "Multi_T calculated"
+                            << "\n";
                 }
-
-
-                // Landmark pose 
-                Eigen::Vector3d l1_world = extractLandmarkPosition(node_id1, landmarks);
-                Eigen::Vector3d l1_cam = cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() * l1_world;
-                Eigen::Vector3d l1_cam_new = delta_T * l1_cam;
-
-                Eigen::Vector3d l2_world = extractLandmarkPosition(node_id2, landmarks);
-                Eigen::Vector3d l2_cam = cameras[FrameCamId(node_id2, 0)].T_w_c.inverse() * l2_world;
-                Eigen::Vector3d l2_cam_new = delta_T * l1_cam;
-
-                // Set the optimized poses 
-                cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
-                cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
-
-
-                // Set poses for right camera
-                cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
-                cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
-
-                std::cout << "Poses Updated" << "\n";
-
-
-                // Landmark pose update
-                Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new;
-                SetLandmarkPosition(node_id1, landmarks, l1_world_new);
-                Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
-                SetLandmarkPosition(node_id2, landmarks, l2_world_new);
-
-                std::cout << "Landmarks updated" << "\n";
-
-
+              }
             }
-        }    
 
+            // Convert to lie algrebra to compute the difference
+            Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
+            Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
+            Sophus::SE3d::Tangent delta_lie_algebra =
+                lie_algebra_1 - lie_algebra_2;  // Maybe we need to do lie2 - lie1?
+            delta_T = Sophus::SE3d::exp(delta_lie_algebra);
 
+            // 
+            std::cout << "Before optimizing"
+                      << "\n";
+            problem.AddParameterBlock(abs_pose1.data(), 6);
+            problem.AddParameterBlock(abs_pose2.data(), 6);
+
+            problem.AddParameterBlock(delta_T.data(), 6);
+            problem.SetParameterBlockConstant(delta_T.data());
+
+            ceres::CostFunction* cost_function =
+                new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6, 6, 6>(
+                    new PoseGraphCostFunctor(delta_T));
+            problem.AddResidualBlock(cost_function, NULL, abs_pose1.data(),
+                                     abs_pose2.data());
+
+            ceres::Solver::Options options;
+            ceres::Solver::Summary summary;
+            ceres::Solve(options, &problem, &summary);
+
+            std::cout << "Ceres Optimized"
+                      << "\n";
+          }
+
+          // Landmark pose
+          Eigen::Vector3d l1_world =
+              extractLandmarkPosition(node_id1, landmarks); // Extract the 3D coords of landmark
+          Eigen::Vector3d l1_cam =
+              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() * l1_world; // Converting to camera frame
+          Eigen::Vector3d l1_cam_new = delta_T * l1_cam; // Multiplying with the difference
+
+          Eigen::Vector3d l2_world =
+              extractLandmarkPosition(node_id2, landmarks);
+          Eigen::Vector3d l2_cam =
+              cameras[FrameCamId(node_id2, 0)].T_w_c.inverse() * l2_world;
+          Eigen::Vector3d l2_cam_new = delta_T * l1_cam;
+
+          // Set the optimized poses
+          cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
+          cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
+
+          // Set poses for right camera
+          cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
+          cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
+
+          std::cout << "Poses Updated"
+                    << "\n";
+
+          // Landmark pose update
+          Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new; // Converting back to the world frame
+          SetLandmarkPosition(node_id1, landmarks, l1_world_new); 
+          Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
+          SetLandmarkPosition(node_id2, landmarks, l2_world_new);
+
+          std::cout << "Landmarks updated"
+                    << "\n";
+        }
+      }
     }
-
 
     /** LOOPCLOSURE: **/
     if (!opt_running && opt_finished) {
@@ -1465,23 +1474,22 @@ bool next_step() {
 
 Eigen::Vector3d extractLandmarkPosition(FrameId frame_id, Landmarks landmarks) {
   for (const auto& landmark : landmarks) {
-        Landmark landmarkData = landmark.second;
-        auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
-        if (it != landmarkData.obs.end()) {
-            return landmarkData.p;
-        }
+    Landmark landmarkData = landmark.second;
+    auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
+    if (it != landmarkData.obs.end()) {
+      return landmarkData.p;
     }
-  
+  }
 }
-void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks, Eigen::Vector3d pose) {
+void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks,
+                         Eigen::Vector3d pose) {
   for (const auto& landmark : landmarks) {
-        Landmark landmarkData = landmark.second;
-        auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
-        if (it != landmarkData.obs.end()) {
-            landmarkData.p = pose;
-        }
+    Landmark landmarkData = landmark.second;
+    auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
+    if (it != landmarkData.obs.end()) {
+      landmarkData.p = pose;
     }
-  
+  }
 }
 
 // Compute reprojections for all landmark observations for visualization and

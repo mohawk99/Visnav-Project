@@ -1313,6 +1313,7 @@ bool next_step() {
 
 
                     // Optimization
+                    std::cout << "Before optimizing" << "\n";
                     problem.AddParameterBlock(abs_pose1.data(), 6);
                     problem.AddParameterBlock(abs_pose2.data(), 6);
 

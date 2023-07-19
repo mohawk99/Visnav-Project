@@ -85,6 +85,11 @@ bool next_step();
 void optimize();
 void compute_projections();
 
+
+Eigen::Vector3d extractLandmarkPosition(FrameId frame_id, Landmarks landmarks);
+void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks, Eigen::Vector3d pose);
+
+
 ///////////////////////////////////////////////////////////////////////////////
 /// Constants
 ///////////////////////////////////////////////////////////////////////////////
@@ -1276,6 +1281,7 @@ bool next_step() {
       // Eigen::Matrix4d multi_T = Eigen::Matrix4d::Identity();
       Sophus::SE3d multi_T;
       int edges_connected[opt_window] = {0};
+      Sophus::SE3d delta_T;
 
 
 
@@ -1313,7 +1319,7 @@ bool next_step() {
                     Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
                     Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
                     Sophus::SE3d::Tangent delta_lie_algebra = lie_algebra_1 - lie_algebra_2;
-                    Sophus::SE3d delta_T = Sophus::SE3d::exp(delta_lie_algebra);
+                    delta_T = Sophus::SE3d::exp(delta_lie_algebra);
 
                     // Optimization
                     problem.AddParameterBlock(abs_pose1.data(), 4);
@@ -1334,6 +1340,16 @@ bool next_step() {
 
                 }
 
+                // Landmark pose 
+                Eigen::Vector3d l1_world = extractLandmarkPosition(node_id1, landmarks);
+                Eigen::Vector3d l1_cam = cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() * l1_world;
+                Eigen::Vector3d l1_cam_new = delta_T * l1_cam;
+
+                Eigen::Vector3d l2_world = extractLandmarkPosition(node_id2, landmarks);
+                Eigen::Vector3d l2_cam = cameras[FrameCamId(node_id2, 0)].T_w_c.inverse() * l2_world;
+                Eigen::Vector3d l2_cam_new = delta_T * l1_cam;
+
+
                 // Set the optimized poses 
                 cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
                 cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
@@ -1342,6 +1358,15 @@ bool next_step() {
                 // Set poses for right camera
                 cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
                 cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
+
+
+
+                // Landmark pose update
+                Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new;
+                SetLandmarkPosition(node_id1, landmarks, l1_world_new);
+                Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
+                SetLandmarkPosition(node_id2, landmarks, l2_world_new);
+
             }
         }    
 
@@ -1437,6 +1462,27 @@ bool next_step() {
     current_frame++;
     return true;
   }
+}
+
+Eigen::Vector3d extractLandmarkPosition(FrameId frame_id, Landmarks landmarks) {
+  for (const auto& landmark : landmarks) {
+        Landmark landmarkData = landmark.second;
+        auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
+        if (it != landmarkData.obs.end()) {
+            return landmarkData.p;
+        }
+    }
+  
+}
+void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks, Eigen::Vector3d pose) {
+  for (const auto& landmark : landmarks) {
+        Landmark landmarkData = landmark.second;
+        auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
+        if (it != landmarkData.obs.end()) {
+            landmarkData.p = pose;
+        }
+    }
+  
 }
 
 // Compute reprojections for all landmark observations for visualization and

@@ -1207,6 +1207,8 @@ bool next_step() {
         poseEdge.T = md1.T_i_j;
         edges.push_back(poseEdge);
 
+        std::cout << "Nodes and Edges for PGO added" << "\n";
+
 
 
         // loop_pairs.push_back(std::make_pair(ckf, fid));
@@ -1276,6 +1278,7 @@ bool next_step() {
         const int& node_id1 = current_node.id;
         abs_pose1 = current_node.pose;
         edges_connected[0] = node_id1;
+        std::cout << "Iterating throguh nodes" << "\n";
 
         // See the next nodes to which it has loop edges with
         for (std::size_t j = i + 1; j < (sortedNodes.size()-1) && j <= i + opt_window; ++j) {
@@ -1290,12 +1293,14 @@ bool next_step() {
                     (edge.id1 == node_id2 && edge.id2 == node_id1)) {
 
                     //const Eigen::Matrix4d& relative_T = edge.T;
+                    std::cout << "Edge Found" << "\n";
                     Sophus::SE3d relative_T = edge.T;
 
                     for(std::size_t k = 0; k < opt_window && edges_connected[k]!=0; ++k){
                         for (const auto& edge1 : edges){
                             if ((edge1.id1 == edges_connected[k+1] && edge1.id2 == edges_connected[k]) || (edge1.id1 == edges_connected[k] && edge1.id2 == edges_connected[k+1])){
                                 multi_T = multi_T * edge1.T;
+                                std::cout << "Multi_T calculated" << "\n";
                             }
                         }
                     }
@@ -1308,10 +1313,10 @@ bool next_step() {
 
 
                     // Optimization
-                    problem.AddParameterBlock(abs_pose1.data(), 4);
-                    problem.AddParameterBlock(abs_pose2.data(), 4);
+                    problem.AddParameterBlock(abs_pose1.data(), 6);
+                    problem.AddParameterBlock(abs_pose2.data(), 6);
 
-                    problem.AddParameterBlock(delta_T.data(), 4);
+                    problem.AddParameterBlock(delta_T.data(), 6);
                     problem.SetParameterBlockConstant(delta_T.data());
 
                     ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6 ,6 ,6 >(new PoseGraphCostFunctor(delta_T));
@@ -1320,6 +1325,8 @@ bool next_step() {
                     ceres::Solver::Options options;
                     ceres::Solver::Summary summary;
                     ceres::Solve(options, &problem, &summary);
+
+                    std::cout << "Ceres Optimized" << "\n";
 
 
                 }
@@ -1343,12 +1350,16 @@ bool next_step() {
                 cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
                 cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
 
+                std::cout << "Poses Updated" << "\n";
+
 
                 // Landmark pose update
                 Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new;
                 SetLandmarkPosition(node_id1, landmarks, l1_world_new);
                 Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
                 SetLandmarkPosition(node_id2, landmarks, l2_world_new);
+
+                std::cout << "Landmarks updated" << "\n";
 
 
             }

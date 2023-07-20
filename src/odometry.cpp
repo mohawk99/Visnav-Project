@@ -1321,12 +1321,13 @@ bool next_step() {
         abs_pose2 = next_node.pose;
         edges_connected[j] = node_id2;
 
+        // Extracting the relative transform between the nodes
         for (const auto& edge : edges) {
           if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
               (edge.id1 == node_id2 && edge.id2 == node_id1)) {
-            // const Eigen::Matrix4d& relative_T = edge.T;
             Sophus::SE3d relative_T = edge.T;
 
+            // To get the transform T14=T12*T23*T34.
             for (std::size_t k = 0; k < opt_window && edges_connected[k] != 0;
                  ++k) {
               for (const auto& edge1 : edges) {
@@ -1339,11 +1340,11 @@ bool next_step() {
               }
             }
 
-            // const Eigen::Matrix4d& delta_T = relative_T - multi_T;
+            // Convert to lie algebra to calculate the difference
             Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
             Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
             Sophus::SE3d::Tangent delta_lie_algebra =
-                lie_algebra_1 - lie_algebra_2;
+                lie_algebra_1 - lie_algebra_2; // Maybe do lie2 - lie1?
             delta_T = Sophus::SE3d::exp(delta_lie_algebra);
 
             // Optimization
@@ -1366,10 +1367,10 @@ bool next_step() {
 
           // Landmark pose
           Eigen::Vector3d l1_world =
-              extractLandmarkPosition(node_id1, landmarks);
+              extractLandmarkPosition(node_id1, landmarks); // Extract world coords of landmark from frame ID
           Eigen::Vector3d l1_cam =
-              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() * l1_world;
-          Eigen::Vector3d l1_cam_new = delta_T * l1_cam;
+              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() * l1_world; // Convert to camera frame
+          Eigen::Vector3d l1_cam_new = delta_T * l1_cam; // Multiply with delta pose
 
           Eigen::Vector3d l2_world =
               extractLandmarkPosition(node_id2, landmarks);
@@ -1389,8 +1390,8 @@ bool next_step() {
                     << "\n";
 
           // Landmark pose update
-          Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new;
-          SetLandmarkPosition(node_id1, landmarks, l1_world_new);
+          Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new; // Convert back to world frame
+          SetLandmarkPosition(node_id1, landmarks, l1_world_new); // Set it into the landmark structure
           Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
           SetLandmarkPosition(node_id2, landmarks, l2_world_new);
 

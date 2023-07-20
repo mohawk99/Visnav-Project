@@ -1344,7 +1344,7 @@ bool next_step() {
             Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
             Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
             Sophus::SE3d::Tangent delta_lie_algebra =
-                lie_algebra_1 - lie_algebra_2; // Maybe do lie2 - lie1?
+                lie_algebra_1 - lie_algebra_2;  // Maybe do lie2 - lie1?
             delta_T = Sophus::SE3d::exp(delta_lie_algebra);
 
             // Optimization
@@ -1366,11 +1366,14 @@ bool next_step() {
           }
 
           // Landmark pose
-          Eigen::Vector3d l1_world =
-              extractLandmarkPosition(node_id1, landmarks); // Extract world coords of landmark from frame ID
+          Eigen::Vector3d l1_world = extractLandmarkPosition(
+              node_id1,
+              landmarks);  // Extract world coords of landmark from frame ID
           Eigen::Vector3d l1_cam =
-              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() * l1_world; // Convert to camera frame
-          Eigen::Vector3d l1_cam_new = delta_T * l1_cam; // Multiply with delta pose
+              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() *
+              l1_world;  // Convert to camera frame
+          Eigen::Vector3d l1_cam_new =
+              delta_T * l1_cam;  // Multiply with delta pose
 
           Eigen::Vector3d l2_world =
               extractLandmarkPosition(node_id2, landmarks);
@@ -1390,8 +1393,11 @@ bool next_step() {
                     << "\n";
 
           // Landmark pose update
-          Eigen::Vector3d l1_world_new = abs_pose1 * l1_cam_new; // Convert back to world frame
-          SetLandmarkPosition(node_id1, landmarks, l1_world_new); // Set it into the landmark structure
+          Eigen::Vector3d l1_world_new =
+              abs_pose1 * l1_cam_new;  // Convert back to world frame
+          SetLandmarkPosition(
+              node_id1, landmarks,
+              l1_world_new);  // Set it into the landmark structure
           Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
           SetLandmarkPosition(node_id2, landmarks, l2_world_new);
 

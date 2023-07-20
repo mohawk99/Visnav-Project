@@ -452,8 +452,7 @@ int main(int argc, char** argv) {
     }
   }
   std::cout << "[EVALUATION] Calculating ATE. . . \n";
-  parseCSV(dataset_path + "/state_groundtruth_estimate0/data.csv",
-           gt_timestamps, gt_positions);
+  parseCSV(dataset_path + "/vicon0/data.csv", gt_timestamps, gt_positions);
   double ate_error =
       alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
   return 0;
@@ -1402,31 +1401,73 @@ bool next_step() {
     }
 
     /** LOOPCLOSURE: **/
+    // if (!opt_running && opt_finished) {
+    //   for (auto loop_fid : accepted_loop_cands) {
+    //     // Move all of landmark observations from current frame to the loop
+    //     // candidate
+    //     for (auto& lm : landmarks) {
+    //       auto track_id = lm.first;
+    //       auto landmark = lm.second;
+    //       auto lm_obs = landmark.obs;
+
+    //       // Find the observations in the current KF.
+    //       if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
+    //           lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
+    //         auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
+    //         auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+
+    //         lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+    //         lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+
+    //         lm.second.obs.erase(FrameCamId(ckf, 0));
+    //         lm.second.obs.erase(FrameCamId(ckf, 1));
+    //       }
+    //     }
+    //     optimize();  // Call BA with updated poses from PGO and landmarks
+    //     from
+    //                  // LoopClosure
+    //   }
+    // }
     if (!opt_running && opt_finished) {
       for (auto loop_fid : accepted_loop_cands) {
-        // Move all of landmark observations from current frame to the loop
+        // Move shared landmark observations from current keyframe to the loop
         // candidate
         for (auto& lm : landmarks) {
           auto track_id = lm.first;
-          auto landmark = lm.second;
-          auto lm_obs = landmark.obs;
+          auto& landmark =
+              lm.second;  // Use a reference to directly modify the landmark
 
-          // Find the observations in the current KF.
-          if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-              lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-            auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-            auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
-            lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
-            lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+          // Check if the landmark has observations in both ckf and loop_fid
+          // with the same FeatureId
+          auto it_ckf_left = landmark.obs.find(FrameCamId(ckf, 0));
+          auto it_ckf_right = landmark.obs.find(FrameCamId(ckf, 1));
+          auto it_loop_left = landmark.obs.find(FrameCamId(loop_fid, 0));
+          auto it_loop_right = landmark.obs.find(FrameCamId(loop_fid, 1));
 
-            lm.second.obs.erase(FrameCamId(ckf, 0));
-            lm.second.obs.erase(FrameCamId(ckf, 1));
+          if (it_ckf_left != landmark.obs.end() &&
+              it_ckf_right != landmark.obs.end() &&
+              it_loop_left != landmark.obs.end() &&
+              it_loop_right != landmark.obs.end() &&
+              it_ckf_left->second == it_loop_left->second &&
+              it_ckf_right->second == it_loop_right->second) {
+            // Move the observations from ckf to loop_fid landmark
+            auto current_obs_left = it_ckf_left->second;
+            auto current_obs_right = it_ckf_right->second;
+
+            landmark.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+            landmark.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+
+            // Remove the observations from ckf landmark
+            landmark.obs.erase(it_ckf_left);
+            landmark.obs.erase(it_ckf_right);
           }
         }
         optimize();  // Call BA with updated poses from PGO and landmarks from
                      // LoopClosure
       }
-    } /***********************************************************/
+    }
+
+    /***********************************************************/
 
     // Update camera trajectories vector
     pred_positions.push_back(cameras[FrameCamId(ckf, 0)].T_w_c.translation());

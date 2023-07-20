@@ -249,6 +249,8 @@ pangolin::Var<double> reprojection_error_huber_pixel("hidden.ba_huber_width",
 // if you enable this, next_step is called repeatedly until completion
 pangolin::Var<bool> continue_next("ui.continue_next", false, true);
 
+pangolin::Var<bool> Loop_Closure("ui.Loop_Closure", false, true);
+
 using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
@@ -1292,7 +1294,7 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
-
+  if (Loop_Closure){
     std::vector<Node> sortedNodes(nodes);
     std::sort(sortedNodes.begin(), sortedNodes.end(),
               [](const Node& node1, const Node& node2) {
@@ -1473,6 +1475,7 @@ bool next_step() {
                      // LoopClosure
       }
     }
+  }
 
     /***********************************************************/
 

@@ -1294,7 +1294,11 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
-  if (Loop_Closure){
+    continue_next = false;
+    if(continue_next == false && Loop_Closure==false){
+        return false;
+        std::cout << "Loop Detected!" << std::endl;
+    }
     std::vector<Node> sortedNodes(nodes);
     std::sort(sortedNodes.begin(), sortedNodes.end(),
               [](const Node& node1, const Node& node2) {
@@ -1475,7 +1479,6 @@ bool next_step() {
                      // LoopClosure
       }
     }
-  }
 
     /***********************************************************/
 

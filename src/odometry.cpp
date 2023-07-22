@@ -519,7 +519,7 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "[EVALUATION] Calculating ATE. . . \n";
-  parseCSV(dataset_path + "/vicon0/data.csv", gt_timestamps, gt_positions);
+  parseCSV(dataset_path + "/leica0/data.csv", gt_timestamps, gt_positions);
   double ate_error =
       alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
 

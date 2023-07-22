@@ -371,12 +371,17 @@ int main(int argc, char** argv) {
   bool show_gui = true;
   std::string dataset_path = "data/V1_01_easy/mav0";
   std::string cam_calib = "opt_calib.json";
+  std::string sensor = "vicon0";
 
   CLI::App app{"Visual odometry."};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
   app.add_option("--dataset-path", dataset_path,
                  "Dataset path. Default: " + dataset_path);
+  app.add_option("--sensor", sensor,
+                 "Name of the sensor used to record (e.g. V1: vicon0, MH: "
+                 "leica0) Default: " +
+                     sensor);
   app.add_option("--cam-calib", cam_calib,
                  "Path to camera calibration. Default: " + cam_calib);
 
@@ -519,7 +524,8 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "[EVALUATION] Calculating ATE. . . \n";
-  parseCSV(dataset_path + "/leica0/data.csv", gt_timestamps, gt_positions);
+  parseCSV(dataset_path + "/" + sensor + "/data.csv", gt_timestamps,
+           gt_positions);
   double ate_error =
       alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
 

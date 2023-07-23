@@ -3,8 +3,12 @@ cmake-build*
 CMakeLists.txt.user
 build
 thirdparty/build-*
-data/V1_01_easy/
-data/MH_01_easy/
+data/**/*.jpg
+data/**/*.png
+data/**/*.yaml
+data/**/*.bag
+data/**/data.csv
+data/**/*.ply
 data/loop_pairs/
 *.cereal
 .DS_Store

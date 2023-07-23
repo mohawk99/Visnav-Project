@@ -70,6 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <visnav/bow_voc.h>
 
 #include <opencv2/opencv.hpp>
+#include <mutex>
 
 using namespace visnav;
 
@@ -249,7 +250,7 @@ pangolin::Var<double> reprojection_error_huber_pixel("hidden.ba_huber_width",
 // if you enable this, next_step is called repeatedly until completion
 pangolin::Var<bool> continue_next("ui.continue_next", false, true);
 
-pangolin::Var<bool> Loop_Closure("ui.Loop_Closure", false, true);
+pangolin::Var<bool> loop_closure_pause("ui.loop_closure_pause", false, true);
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
@@ -270,9 +271,14 @@ int main(int argc, char** argv) {
   CLI::App app{"Visual odometry."};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
+
+  app.add_option("--save-loop-pairs", SAVE_LOOP_PAIRS,
+                 "Visualize and save loop pairs to disk");
+
   app.add_option("--dataset-path", dataset_path,
                  "Dataset path. Default: " + dataset_path);
-  app.add_option("--sensor", dataset_path,
+
+  app.add_option("--sensor", sensor,
                  "Name of the sensor used to record data (e.g. V1: vicon0, MH: "
                  "leica0). Default: " +
                      sensor);
@@ -380,6 +386,8 @@ int main(int argc, char** argv) {
             .SetHandler(new pangolin::Handler3D(camera));
     main_view.AddDisplay(display3D);
 
+    // Add the text to the popup window
+
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -463,6 +471,21 @@ int main(int argc, char** argv) {
            gt_positions);
   double ate_error =
       alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
+
+  std::ofstream outputFile(dataset_path + "/ATE.txt");
+
+  if (outputFile.is_open()) {
+    outputFile << ate_error;
+    outputFile.close();
+  } else {
+    std::cout << "Failed to write ATE to disk" << std::endl;
+    return 1;
+  }
+
+  std::string pred_csv_path = dataset_path + "/predicted_positions.csv";
+  std::string gt_csv_path = dataset_path + "/gt_positions.csv";
+  writeDataToCSV(gt_timestamps, pred_positions, pred_csv_path);
+  writeDataToCSV(gt_timestamps, gt_positions, gt_csv_path);
   return 0;
 }
 
@@ -1244,13 +1267,15 @@ bool next_step() {
 
         /** LOOP_EDGE_CONSISTENCY: Add loop edge with neighbours of current
          * frame**/
-        auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
-        for (auto ckf_covis_fid : ckf_covis_frames) {
-          GraphEdge covis_loop_edge;
-          covis_loop_edge.type = 2;
-          covis_loop_edge.value = fid;
+        if (covis_graph.exists(ckf)) {
+          auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
+          for (auto ckf_covis_fid : ckf_covis_frames) {
+            GraphEdge covis_loop_edge;
+            covis_loop_edge.type = 2;
+            covis_loop_edge.value = fid;
 
-          covis_graph.add_edge(ckf_covis_fid.value, covis_loop_edge);
+            covis_graph.add_edge(ckf_covis_fid.value, covis_loop_edge);
+          }
         }
 
         /** FEATURE: writing loop pairs to disk**/
@@ -1300,190 +1325,164 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
-    if (Loop_Closure) {
-      std::vector<Node> sortedNodes(nodes);
-      std::sort(sortedNodes.begin(), sortedNodes.end(),
-                [](const Node& node1, const Node& node2) {
-                  return node1.id < node2.id;
-                });
+    if (loop_closure_pause && accepted_loop_cands.size() > 0) {
+      std::cout << "About to Close Loop...\n";
+      for (int k = 0; k < 1e6; k++) {
+        int lol = 101 * 101;
+      }
+    }
+    std::vector<Node> sortedNodes(nodes);
+    std::sort(sortedNodes.begin(), sortedNodes.end(),
+              [](const Node& node1, const Node& node2) {
+                return node1.id < node2.id;
+              });
 
-      const int opt_window = 3;
-      ceres::Problem problem;
-      Sophus::SE3d multi_T;
-      int edges_connected[opt_window] = {0};
-      Sophus::SE3d delta_T;
+    const int opt_window = 3;
+    ceres::Problem problem;
+    Sophus::SE3d multi_T;
+    int edges_connected[opt_window] = {0};
+    Sophus::SE3d delta_T;
 
-      // Iterate through the nodes
-      for (std::size_t i = 0;
-           i < (sortedNodes.size() - 1) && sortedNodes.size() > 0; ++i) {
-        const Node& current_node = sortedNodes[i];
-        const int& node_id1 = current_node.id;
-        abs_pose1 = current_node.pose;
-        edges_connected[0] = node_id1;
+    // Iterate through the nodes
+    for (std::size_t i = 0;
+         i < (sortedNodes.size() - 1) && sortedNodes.size() > 0; ++i) {
+      const Node& current_node = sortedNodes[i];
+      const int& node_id1 = current_node.id;
+      abs_pose1 = current_node.pose;
+      edges_connected[0] = node_id1;
 
-        // See the next nodes to which it has loop edges with
-        for (std::size_t j = i + 1;
-             j < (sortedNodes.size() - 1) && j <= i + opt_window; ++j) {
-          const Node& next_node = sortedNodes[j];
-          const int& node_id2 = next_node.id;
-          abs_pose2 = next_node.pose;
-          edges_connected[j] = node_id2;
+      // See the next nodes to which it has loop edges with
+      for (std::size_t j = i + 1;
+           j < (sortedNodes.size() - 1) && j <= i + opt_window; ++j) {
+        const Node& next_node = sortedNodes[j];
+        const int& node_id2 = next_node.id;
+        abs_pose2 = next_node.pose;
+        edges_connected[j] = node_id2;
 
-          // Extracting the relative transform between the nodes
-          for (const auto& edge : edges) {
-            if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
-                (edge.id1 == node_id2 && edge.id2 == node_id1)) {
-              Sophus::SE3d relative_T = edge.T;
+        // Extracting the relative transform between the nodes
+        for (const auto& edge : edges) {
+          if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
+              (edge.id1 == node_id2 && edge.id2 == node_id1)) {
+            Sophus::SE3d relative_T = edge.T;
 
-              // To get the transform T14=T12*T23*T34.
-              for (std::size_t k = 0; k < opt_window && edges_connected[k] != 0;
-                   ++k) {
-                for (const auto& edge1 : edges) {
-                  if ((edge1.id1 == edges_connected[k + 1] &&
-                       edge1.id2 == edges_connected[k]) ||
-                      (edge1.id1 == edges_connected[k] &&
-                       edge1.id2 == edges_connected[k + 1])) {
-                    multi_T = multi_T * edge1.T;
-                  }
+            // To get the transform T14=T12*T23*T34.
+            for (std::size_t k = 0; k < opt_window && edges_connected[k] != 0;
+                 ++k) {
+              for (const auto& edge1 : edges) {
+                if ((edge1.id1 == edges_connected[k + 1] &&
+                     edge1.id2 == edges_connected[k]) ||
+                    (edge1.id1 == edges_connected[k] &&
+                     edge1.id2 == edges_connected[k + 1])) {
+                  multi_T = multi_T * edge1.T;
                 }
               }
-
-              // Convert to lie algebra to calculate the difference
-              Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
-              Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
-              Sophus::SE3d::Tangent delta_lie_algebra =
-                  lie_algebra_1 - lie_algebra_2;  // Maybe do lie2 - lie1?
-              delta_T = Sophus::SE3d::exp(delta_lie_algebra);
-
-              // Optimization
-              problem.AddParameterBlock(abs_pose1.data(), 6);
-              problem.AddParameterBlock(abs_pose2.data(), 6);
-
-              problem.AddParameterBlock(delta_T.data(), 6);
-              problem.SetParameterBlockConstant(delta_T.data());
-
-              ceres::CostFunction* cost_function =
-                  new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6, 6,
-                                                  6>(
-                      new PoseGraphCostFunctor(delta_T));
-              problem.AddResidualBlock(cost_function, NULL, abs_pose1.data(),
-                                       abs_pose2.data());
-
-              ceres::Solver::Options options;
-              ceres::Solver::Summary summary;
-              ceres::Solve(options, &problem, &summary);
             }
 
-            // Landmark pose
-            Eigen::Vector3d l1_world = extractLandmarkPosition(
-                node_id1,
-                landmarks);  // Extract world coords of landmark from frame ID
-            Eigen::Vector3d l1_cam =
-                cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() *
-                l1_world;  // Convert to camera frame
-            Eigen::Vector3d l1_cam_new =
-                delta_T * l1_cam;  // Multiply with delta pose
+            // Convert to lie algebra to calculate the difference
+            Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
+            Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
+            Sophus::SE3d::Tangent delta_lie_algebra =
+                lie_algebra_1 - lie_algebra_2;  // Maybe do lie2 - lie1?
+            delta_T = Sophus::SE3d::exp(delta_lie_algebra);
 
-            Eigen::Vector3d l2_world =
-                extractLandmarkPosition(node_id2, landmarks);
-            Eigen::Vector3d l2_cam =
-                cameras[FrameCamId(node_id2, 0)].T_w_c.inverse() * l2_world;
-            Eigen::Vector3d l2_cam_new = delta_T * l1_cam;
+            // Optimization
+            problem.AddParameterBlock(abs_pose1.data(), 6);
+            problem.AddParameterBlock(abs_pose2.data(), 6);
 
-            // Set the optimized poses
-            cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
-            cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
+            problem.AddParameterBlock(delta_T.data(), 6);
+            problem.SetParameterBlockConstant(delta_T.data());
 
-            // Set poses for right camera
-            cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
-            cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
+            ceres::CostFunction* cost_function =
+                new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6, 6, 6>(
+                    new PoseGraphCostFunctor(delta_T));
+            problem.AddResidualBlock(cost_function, NULL, abs_pose1.data(),
+                                     abs_pose2.data());
 
-            std::cout << "Poses Updated"
-                      << "\n";
-
-            // Landmark pose update
-            Eigen::Vector3d l1_world_new =
-                abs_pose1 * l1_cam_new;  // Convert back to world frame
-            SetLandmarkPosition(
-                node_id1, landmarks,
-                l1_world_new);  // Set it into the landmark structure
-            Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
-            SetLandmarkPosition(node_id2, landmarks, l2_world_new);
-
-            std::cout << "Landmarks updated"
-                      << "\n";
+            ceres::Solver::Options options;
+            ceres::Solver::Summary summary;
+            ceres::Solve(options, &problem, &summary);
           }
-        }
-      }
 
-      /** LOOPCLOSURE: **/
-      // if (!opt_running && opt_finished) {
-      //   for (auto loop_fid : accepted_loop_cands) {
-      //     // Move all of landmark observations from current frame to the loop
-      //     // candidate
-      //     for (auto& lm : landmarks) {
-      //       auto track_id = lm.first;
-      //       auto landmark = lm.second;
-      //       auto lm_obs = landmark.obs;
+          // Landmark pose
+          Eigen::Vector3d l1_world = extractLandmarkPosition(
+              node_id1,
+              landmarks);  // Extract world coords of landmark from frame ID
+          Eigen::Vector3d l1_cam =
+              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() *
+              l1_world;  // Convert to camera frame
+          Eigen::Vector3d l1_cam_new =
+              delta_T * l1_cam;  // Multiply with delta pose
 
-      //       // Find the observations in the current KF.
-      //       if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-      //           lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-      //         auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-      //         auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
+          Eigen::Vector3d l2_world =
+              extractLandmarkPosition(node_id2, landmarks);
+          Eigen::Vector3d l2_cam =
+              cameras[FrameCamId(node_id2, 0)].T_w_c.inverse() * l2_world;
+          Eigen::Vector3d l2_cam_new = delta_T * l1_cam;
 
-      //         lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
-      //         lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+          // Set the optimized poses
+          cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
+          cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
 
-      //         lm.second.obs.erase(FrameCamId(ckf, 0));
-      //         lm.second.obs.erase(FrameCamId(ckf, 1));
-      //       }
-      //     }
-      //     optimize();  // Call BA with updated poses from PGO and landmarks
-      //     from
-      //                  // LoopClosure
-      //   }
-      // }
-      if (!opt_running && opt_finished) {
-        for (auto loop_fid : accepted_loop_cands) {
-          // Move shared landmark observations from current keyframe to the loop
-          // candidate
-          for (auto& lm : landmarks) {
-            auto track_id = lm.first;
-            auto& landmark =
-                lm.second;  // Use a reference to directly modify the landmark
+          // Set poses for right camera
+          cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
+          cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
 
-            // Check if the landmark has observations in both ckf and loop_fid
-            // with the same FeatureId
-            auto it_ckf_left = landmark.obs.find(FrameCamId(ckf, 0));
-            auto it_ckf_right = landmark.obs.find(FrameCamId(ckf, 1));
-            auto it_loop_left = landmark.obs.find(FrameCamId(loop_fid, 0));
-            auto it_loop_right = landmark.obs.find(FrameCamId(loop_fid, 1));
+          std::cout << "Poses Updated"
+                    << "\n";
 
-            if (it_ckf_left != landmark.obs.end() &&
-                it_ckf_right != landmark.obs.end() &&
-                it_loop_left != landmark.obs.end() &&
-                it_loop_right != landmark.obs.end() &&
-                it_ckf_left->second == it_loop_left->second &&
-                it_ckf_right->second == it_loop_right->second) {
-              // Move the observations from ckf to loop_fid landmark
-              auto current_obs_left = it_ckf_left->second;
-              auto current_obs_right = it_ckf_right->second;
+          // Landmark pose update
+          Eigen::Vector3d l1_world_new =
+              abs_pose1 * l1_cam_new;  // Convert back to world frame
+          SetLandmarkPosition(
+              node_id1, landmarks,
+              l1_world_new);  // Set it into the landmark structure
+          Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
+          SetLandmarkPosition(node_id2, landmarks, l2_world_new);
 
-              landmark.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
-              landmark.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
-
-              // Remove the observations from ckf landmark
-              landmark.obs.erase(it_ckf_left);
-              landmark.obs.erase(it_ckf_right);
-            }
-          }
-          optimize();  // Call BA with updated poses from PGO and landmarks from
-                       // LoopClosure
+          std::cout << "Landmarks updated"
+                    << "\n";
         }
       }
     }
 
+    if (!opt_running && opt_finished) {
+      for (auto loop_fid : accepted_loop_cands) {
+        // Move shared landmark observations from current keyframe to the loop
+        // candidate
+        for (auto& lm : landmarks) {
+          auto track_id = lm.first;
+          auto& landmark =
+              lm.second;  // Use a reference to directly modify the landmark
+
+          // Check if the landmark has observations in both ckf and loop_fid
+          // with the same FeatureId
+          auto it_ckf_left = landmark.obs.find(FrameCamId(ckf, 0));
+          auto it_ckf_right = landmark.obs.find(FrameCamId(ckf, 1));
+          auto it_loop_left = landmark.obs.find(FrameCamId(loop_fid, 0));
+          auto it_loop_right = landmark.obs.find(FrameCamId(loop_fid, 1));
+
+          if (it_ckf_left != landmark.obs.end() &&
+              it_ckf_right != landmark.obs.end() &&
+              it_loop_left != landmark.obs.end() &&
+              it_loop_right != landmark.obs.end() &&
+              it_ckf_left->second == it_loop_left->second &&
+              it_ckf_right->second == it_loop_right->second) {
+            // Move the observations from ckf to loop_fid landmark
+            auto current_obs_left = it_ckf_left->second;
+            auto current_obs_right = it_ckf_right->second;
+
+            landmark.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+            landmark.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+
+            // Remove the observations from ckf landmark
+            landmark.obs.erase(it_ckf_left);
+            landmark.obs.erase(it_ckf_right);
+          }
+        }
+        // optimize();  // Call BA with updated poses from PGO and landmarks
+        // from LoopClosure
+      }
+    }
     /***********************************************************/
 
     // Update camera trajectories vector

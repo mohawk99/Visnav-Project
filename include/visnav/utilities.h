@@ -8,6 +8,9 @@
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
 
+#include <chrono>
+#include <thread>
+
 template <typename T>
 std::set<T, std::greater<T>> sortSetDescending(const std::set<T>& inputSet) {
   std::set<T, std::greater<T>> sortedSet(inputSet.begin(), inputSet.end());
@@ -180,4 +183,33 @@ void parseCSV(const std::string& file_path, std::vector<int64_t>& timestamps,
 
     positions.push_back(position);
   }
+}
+
+void imitateSleep(int seconds) {
+  for (int i = 0; i < seconds * 10; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        100));  // Sleep for 100 milliseconds (0.1 second)
+  }
+}
+
+void writeDataToCSV(const std::vector<int64_t>& timestamps,
+                    const std::vector<Eigen::Vector3d>& positions,
+                    const std::string& file_path) {
+  std::ofstream file(file_path);
+
+  if (!file.is_open()) {
+    std::cerr << "Error opening the file: " << file_path << std::endl;
+    return;
+  }
+
+  // Write CSV header
+  file << "timestamp,x,y,z\n";
+
+  // Write data for each position and timestamp
+  for (size_t i = 0; i < positions.size(); ++i) {
+    file << timestamps[i] << "," << positions[i].x() << "," << positions[i].y()
+         << "," << positions[i].z() << "\n";
+  }
+
+  file.close();
 }

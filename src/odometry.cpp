@@ -228,6 +228,29 @@ double alignSVD(const std::vector<int64_t>& filter_t_ns,
   return error;
 }
 
+void writeDataToCSV(const std::vector<int64_t>& timestamps,
+                    const std::vector<Eigen::Vector3d>& positions,
+                    const std::string& file_path) {
+    std::ofstream file(file_path);
+
+    if (!file.is_open()) {
+        std::cerr << "Error opening the file: " << file_path << std::endl;
+        return;
+    }
+
+    // Write CSV header
+    file << "timestamp,x,y,z\n";
+
+    // Write data for each position and timestamp
+    for (size_t i = 0; i < positions.size(); ++i) {
+        file << timestamps[i] << "," << positions[i].x() << ","
+             << positions[i].y() << "," << positions[i].z() << "\n";
+    }
+
+    file.close();
+}
+
+
 void parseCSV(const std::string& file_path, std::vector<int64_t>& timestamps,
               std::vector<Eigen::Vector3d>& positions) {
   std::ifstream file(file_path);
@@ -257,8 +280,12 @@ void parseCSV(const std::string& file_path, std::vector<int64_t>& timestamps,
     }
 
     positions.push_back(position);
+
   }
 }
+
+
+
 
 template <typename T>
 std::set<T, std::greater<T>> sortSetDescending(const std::set<T>& inputSet) {
@@ -367,9 +394,11 @@ Button next_step_btn("ui.next_step", &next_step);
 
 // Parse parameters, load data, and create GUI window and event loop (or
 // process everything in non-gui mode).
+
+
 int main(int argc, char** argv) {
   bool show_gui = true;
-  std::string dataset_path = "data/V1_01_easy/mav0";
+  std::string dataset_path = "data/V2_01_easy/mav0";
   std::string cam_calib = "opt_calib.json";
 
   CLI::App app{"Visual odometry."};
@@ -519,9 +548,15 @@ int main(int argc, char** argv) {
   }
 
   std::cout << "[EVALUATION] Calculating ATE. . . \n";
-  parseCSV(dataset_path + "/leica0/data.csv", gt_timestamps, gt_positions);
+  parseCSV(dataset_path + "vicon0/data.csv", gt_timestamps, gt_positions);
   double ate_error =
       alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
+  std::cout << "[EVALUATION]ATE = " << ate_error << "\n";
+
+    //  std::string file_name1 = "/home/mohawk/V1_01_gt.csv";
+    //writeDataToCSV(gt_timestamps,gt_positions, file_name1);
+    std::string file_name = "/home/mohawk/V1_01_traj.csv";
+    writeDataToCSV(gt_timestamps,pred_positions, file_name);
 
   return 0;
 }
@@ -1015,6 +1050,7 @@ bool next_step() {
 
     FrameId ckf = *covis_candidates.begin();
     pred_positions.push_back(cameras[FrameCamId(ckf, 0)].T_w_c.translation());
+
 
     current_frame++;
     return true;

@@ -183,8 +183,7 @@ void parseCSV(const std::string& file_path, std::vector<int64_t>& timestamps,
 
     positions.push_back(position);
   }
-}
-
+ 
 void imitateSleep(int seconds) {
   for (int i = 0; i < seconds * 10; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(

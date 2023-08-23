@@ -252,6 +252,7 @@ pangolin::Var<bool> continue_next("ui.continue_next", false, true);
 
 pangolin::Var<bool> loop_closure_pause("ui.loop_closure_pause", false, true);
 
+
 using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
@@ -1444,6 +1445,7 @@ bool next_step() {
         }
       }
     }
+
 
     if (!opt_running && opt_finished) {
       for (auto loop_fid : accepted_loop_cands) {

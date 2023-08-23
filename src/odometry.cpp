@@ -64,6 +64,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <visnav/serialization.h>
 
+#include <visnav/utilities.h>
+
+#include <visnav/bow_db.h>
+#include <visnav/bow_voc.h>
+
+#include <opencv2/opencv.hpp>
+
+#include <opengv/relative_pose/CentralRelativeAdapter.hpp>
+#include <opengv/relative_pose/methods.hpp>
+#include <opengv/sac/Ransac.hpp>
+#include <opengv/sac_problems/relative_pose/CentralRelativePoseSacProblem.hpp>
+#include <opengv/absolute_pose/CentralAbsoluteAdapter.hpp>
+#include <opengv/absolute_pose/methods.hpp>
+#include <opengv/sac_problems/absolute_pose/AbsolutePoseSacProblem.hpp>
+#include <opengv/triangulation/methods.hpp>
+
+#include <mutex>
+
 using namespace visnav;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -77,6 +95,10 @@ void load_data(const std::string& path, const std::string& calib_path);
 bool next_step();
 void optimize();
 void compute_projections();
+
+Eigen::Vector3d extractLandmarkPosition(FrameId frame_id, Landmarks landmarks);
+void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks,
+                         Eigen::Vector3d pose);
 
 ///////////////////////////////////////////////////////////////////////////////
 /// Constants
@@ -137,13 +159,42 @@ Landmarks old_landmarks;
 /// determining outliers; indexed by images
 ImageProjections image_projections;
 
+/**
+ * PROJECT:
+ * Covisibility Graph containing edges if two Key Frames are covisible
+ * TODO: Extend class for loop edge too later
+ */
+
+CoVisGraph covis_graph;
+int num_keyframes = kf_frames.size();
+int WINDOW_SIZE = 3;
+const std::string vocab_path = "./data/ORBvoc.cereal";
+BowDatabase BOW_DB;
+BowVocabulary BOW_VOCAB(vocab_path);
+
+std::map<FrameId, bool> loop_candidates;
+const int patience = 3;
+int loop_consistency_timeout = patience;
+pangolin::Var<double> relative_pose_ransac_thresh("hidden.5pt_thresh", 5e-5,
+                                                  1e-10, 1, true);
+
+std::vector<std::pair<FrameId, FrameId>> loop_pairs;
+
+bool SAVE_LOOP_PAIRS = false;
+
+std::vector<Eigen::Vector3d> gt_positions;
+std::vector<Eigen::Vector3d> pred_positions;
+std::vector<int64_t> gt_timestamps;
+
+/** END_PROJECT: **/
+
 ///////////////////////////////////////////////////////////////////////////////
 /// GUI parameters
 ///////////////////////////////////////////////////////////////////////////////
 
-// The following GUI elements can be enabled / disabled from the main panel by
-// switching the prefix from "ui" to "hidden" or vice verca. This way you can
-// show only the elements you need / want for development.
+// The following GUI elements can be enabled / disabled from the main panel
+// by switching the prefix from "ui" to "hidden" or vice verca. This way you
+// can show only the elements you need / want for development.
 
 pangolin::Var<bool> ui_show_hidden("ui.show_extra_options", false, true);
 
@@ -209,6 +260,8 @@ pangolin::Var<double> reprojection_error_huber_pixel("hidden.ba_huber_width",
 // if you enable this, next_step is called repeatedly until completion
 pangolin::Var<bool> continue_next("ui.continue_next", false, true);
 
+pangolin::Var<bool> loop_closure_pause("ui.loop_closure_pause", false, true);
+
 using Button = pangolin::Var<std::function<void(void)>>;
 
 Button next_step_btn("ui.next_step", &next_step);
@@ -223,12 +276,22 @@ int main(int argc, char** argv) {
   bool show_gui = true;
   std::string dataset_path = "data/V1_01_easy/mav0";
   std::string cam_calib = "opt_calib.json";
+  std::string sensor = "vicon0";
 
   CLI::App app{"Visual odometry."};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
+
+  app.add_option("--save-loop-pairs", SAVE_LOOP_PAIRS,
+                 "Visualize and save loop pairs to disk");
+
   app.add_option("--dataset-path", dataset_path,
                  "Dataset path. Default: " + dataset_path);
+
+  app.add_option("--sensor", sensor,
+                 "Name of the sensor used to record data (e.g. V1: vicon0, MH: "
+                 "leica0). Default: " +
+                     sensor);
   app.add_option("--cam-calib", cam_calib,
                  "Path to camera calibration. Default: " + cam_calib);
 
@@ -279,6 +342,48 @@ int main(int argc, char** argv) {
           std::bind(&draw_image_overlay, std::placeholders::_1, idx);
     }
 
+    /****** PROJECT: Loop Edge Pair Visualization *********/
+
+    // // Create a new window for frame plotting
+    // pangolin::CreateWindowAndBind("Loop Edges", 1280, 480);
+
+    // // Create a view for Loop Edgesting
+    // pangolin::View& framePlotView = pangolin::Display("Loop Edges")
+    //                                     .SetBounds(0.0, 1.0, 0.0, 1.0)
+    //                                     .SetLayout(pangolin::LayoutEqual);
+
+    // // Add the view to the window
+    // framePlotView.AddDisplay(pangolin::Display("Loop Edges"));
+
+    // // Set the Loop Edgesting function as the draw function for the view
+    // framePlotView[0].extern_draw_function =
+    //     std::bind(&draw_image_overlay, std::placeholders::_1, 0);
+
+    // // Create a slider for selecting the frame index
+    // pangolin::Var<int> frameSlider("Pair Index", 0, 0, loop_pairs.size() -
+    // 1); framePlotView.AddDisplay(frameSlider);
+
+    // // Main event loop for Loop Edgesting window
+    // while (!pangolin::ShouldQuit()) {
+    //   // Clear the view
+    //   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    //   // Update the frame index based on the slider value
+    //   int frameIndex = frameSlider.Get();
+    //   show_frame1 = frameIndex;
+    //   show_frame2 = frameIndex;
+
+    //   // Render the view
+    //   framePlotView.Render();
+
+    //   // Swap buffers and process events
+    //   pangolin::FinishFrame();
+    // }
+
+    // // Destroy the Loop Edgesting window
+    // pangolin::DestroyWindow("Loop Edges");
+    /*****************************************************/
+
     // 3D visualization (initial camera view optimized to see full map)
     pangolin::OpenGlRenderState camera(
         pangolin::ProjectionMatrix(640, 480, 400, 400, 320, 240, 0.001, 10000),
@@ -290,6 +395,8 @@ int main(int argc, char** argv) {
             .SetAspect(-640 / 480.0)
             .SetHandler(new pangolin::Handler3D(camera));
     main_view.AddDisplay(display3D);
+
+    // Add the text to the popup window
 
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -369,9 +476,93 @@ int main(int argc, char** argv) {
       // nop
     }
   }
+  std::cout << "[EVALUATION] Calculating ATE. . . \n";
+  parseCSV(dataset_path + "/" + sensor + "/data.csv", gt_timestamps,
+           gt_positions);
+  double ate_error =
+      alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
 
+  std::ofstream outputFile(dataset_path + "/ATE.txt");
+
+  if (outputFile.is_open()) {
+    outputFile << ate_error;
+    outputFile.close();
+  } else {
+    std::cout << "Failed to write ATE to disk" << std::endl;
+    return 1;
+  }
+
+  std::string pred_csv_path = dataset_path + "/predicted_positions.csv";
+  std::string gt_csv_path = dataset_path + "/gt_positions.csv";
+  writeDataToCSV(gt_timestamps, pred_positions, pred_csv_path);
+  writeDataToCSV(gt_timestamps, gt_positions, gt_csv_path);
   return 0;
 }
+
+// void plotFrames(const std::vector<cv::Mat>& frames,
+//                 const std::vector<std::pair<int, int>>& indexTuples) {
+//   // Initialize Pangolin
+//   pangolin::CreateWindowAndBind("Frame Plot", 640, 480);
+
+//   // Create a view for the first frame
+//   pangolin::View& view1 = pangolin::CreateDisplay().SetBounds(
+//       0.0, 1.0, pangolin::Attach::Pix(0), pangolin::Attach::Pix(480));
+
+//   // Create a view for the second frame
+//   pangolin::View& view2 = pangolin::CreateDisplay().SetBounds(
+//       0.0, 1.0, pangolin::Attach::Pix(480), pangolin::Attach::Pix(960));
+
+//   // Create a slider for index selection
+//   pangolin::Var<int> indexSlider("ui.index", 0, 0, indexTuples.size() - 1);
+
+//   // Add views and slider to the display
+//   pangolin::Display("Frame Plot").AddDisplay(view1);
+//   pangolin::Display("Frame Plot").AddDisplay(view2);
+//   pangolin::Display("Frame Plot").AddVariable(indexSlider);
+
+//   while (!pangolin::ShouldQuit()) {
+//     // Clear the views
+//     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+//     // Select the index tuple based on the slider value
+//     int tupleIndex = indexSlider.Get();
+//     if (tupleIndex >= 0 && tupleIndex < indexTuples.size()) {
+//       std::pair<int, int> indexTuple = indexTuples[tupleIndex];
+//       int index1 = indexTuple.first;
+//       int index2 = indexTuple.second;
+
+//       // Select the first frame
+//       view1.Activate();
+//       glClearColor(0.0, 0.0, 0.0, 0.0);
+//       glColor3f(1.0, 1.0, 1.0);
+
+//       // Plot the first frame
+//       if (index1 >= 0 && index1 < frames.size()) {
+//         cv::Mat frame1 = frames[index1];
+//         glDrawPixels(frame1.cols, frame1.rows, GL_BGR_EXT, GL_UNSIGNED_BYTE,
+//                      frame1.data);
+//       }
+
+//       // Select the second frame
+//       view2.Activate();
+//       glClearColor(0.0, 0.0, 0.0, 0.0);
+//       glColor3f(1.0, 1.0, 1.0);
+
+//       // Plot the second frame
+//       if (index2 >= 0 && index2 < frames.size()) {
+//         cv::Mat frame2 = frames[index2];
+//         glDrawPixels(frame2.cols, frame2.rows, GL_BGR_EXT, GL_UNSIGNED_BYTE,
+//                      frame2.data);
+//       }
+//     }
+
+//     // Swap frames and process events
+//     pangolin::FinishFrame();
+//   }
+
+//   // Close the window
+//   pangolin::DestroyWindow("Frame Plot");
+// }
 
 // Visualize features and related info on top of the image views
 void draw_image_overlay(pangolin::View& v, size_t view_id) {
@@ -662,6 +853,36 @@ void draw_scene() {
       }
     }
     render_camera(current_pose.matrix(), 2.0f, color_camera_current, 0.1f);
+    const Eigen::Matrix4d& T_w_c2 = current_pose.matrix();
+
+    // PLOT FOR ALL KF_FRAMES
+    for (const auto& kv : covis_graph.edges) {
+      FrameId kf = kv.first;
+      std::vector<GraphEdge> edges = kv.second;
+
+      const Eigen::Matrix4d& T_w_c1 = covis_graph.poses[kf];
+
+      for (auto e : edges) {
+        FrameId frame = e.value;
+        int type = e.type;
+        float weight = e.weight;
+
+        const Eigen::Matrix4d& T_w_c2 = covis_graph.poses[frame];
+
+        DrawCameraCenter(T_w_c1, 1.0f, 0.0f,
+                         0.0f);  // Red color for camera 1
+        DrawCameraCenter(T_w_c2, 0.0f, 0.0f,
+                         1.0f);  // Blue color for camera 2
+
+        u_int8_t color_line[3];
+
+        if (type == 1) {
+          DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.0f, 1.0f, 0.0f);
+        } else {
+          DrawLineBetweenCameras(T_w_c1, T_w_c2, 0.0f, 0.0f, 1.0f);
+        }
+      }
+    }
   }
 
   // render points
@@ -851,6 +1072,432 @@ bool next_step() {
 
     current_pose = cameras[fcidl].T_w_c;
 
+    /******* !!!!!!!!!!!!! COVIS LOGIC !!!!!!!!!!!!!!! ***********/
+
+    /**
+     * Add Covisibility Edges here
+     */
+
+    std::vector<Node> nodes;
+    std::vector<Edge> edges;
+    MatchData md1;
+    Sophus::SE3d ckf_T;
+    Sophus::SE3d abs_pose1;
+    Sophus::SE3d abs_pose2;
+
+    const int MATCH_THRESHOLD = 70;
+    const double DIST_2_BEST = 1.2;
+    bool new_keyframe_added = kf_frames.size() > num_keyframes;
+    auto covis_candidates = getTopNElements(kf_frames, WINDOW_SIZE + 1);
+
+    FrameId ckf = *covis_candidates.begin();
+
+    // Add cameras for plotting
+    covis_graph.poses[ckf] = cameras[FrameCamId(ckf, 0)].T_w_c.matrix();
+
+    if (new_keyframe_added && covis_candidates.size() > 0) {
+      KeypointsData kdl = feature_corners[FrameCamId(ckf, 0)];
+
+      // Add Bow vector
+      BowVector kf_bow;
+      BOW_VOCAB.transform(kdl.corner_descriptors, kf_bow);
+      BOW_DB.insert(FrameCamId(ckf, 0), kf_bow);
+
+      // std::cout << "New Keyframe Added: " << ckf << "\n";
+
+      // std::cout << "Current KeyFrame: " << ckf << " | Candidate KeyFrames"
+      // << "(" << covis_candidates.size() << "): ";
+
+      for (auto& candidate_kf : covis_candidates) {
+        if (candidate_kf == ckf) continue;
+        // std::cout << candidate_kf << ", ";
+        KeypointsData kdl_candidate =
+            feature_corners[FrameCamId(candidate_kf, 0)];
+
+        // Add BoW for candidate keyframe
+        BowVector cand_kf_bow;
+        BOW_VOCAB.transform(kdl_candidate.corner_descriptors, cand_kf_bow);
+        BOW_DB.insert(FrameCamId(candidate_kf, 0), cand_kf_bow);
+
+        // std::vector<std::pair<FeatureId, FeatureId>> desc_matches;
+        MatchData ransac_md;
+        matchDescriptors(kdl_candidate.corner_descriptors,
+                         kdl.corner_descriptors, ransac_md.matches,
+                         MATCH_THRESHOLD, DIST_2_BEST);
+
+        // Use brute-force matching for covisibility
+        int min_matches = 20;
+        bool covis = ransac_md.matches.size() > min_matches ? true : false;
+
+        if (covis) {
+          GraphEdge covis_edge;
+          covis_edge.type = 1;
+          covis_edge.weight = ransac_md.matches.size();
+          covis_edge.value = candidate_kf;
+          covis_edge.desc_matches = ransac_md.matches;
+          std::cout << "Adding Covis Edge from " << ckf << " to "
+                    << candidate_kf << "\n";
+          covis_graph.add_edge(ckf, covis_edge);
+        }
+      }
+      // Covis Consistency check
+      if (covis_candidates.size() > 1) {
+        FrameId prev_frame = *std::next(covis_candidates.begin(), 1);
+        std::cout << "Current Frame: " << ckf
+                  << " | Previous Frame: " << prev_frame << "\n";
+        auto ckf_covis_edge = covis_graph.find_edge(ckf, prev_frame);
+        if (ckf_covis_edge.value == -1) {
+          GraphEdge e;
+          e.type = 1;
+          e.value = prev_frame;
+
+          covis_graph.add_edge(ckf, e);
+        }
+      }
+      // std::cout << "\n";
+
+      /** TODO: Loop Candidate Selection*/
+      int keeptopk = 3;
+      int theta_min = 30;
+      auto neighbours = covis_graph.find_neighbours(ckf, keeptopk);
+
+      BowQueryResult query_result;
+      BOW_DB.query(kf_bow, theta_min + 1,
+                   query_result);  // + 1 because selfmatch will be discarded
+      query_result.erase(query_result.begin());  // Discard self match
+
+      // Use a variant of ORB-SLAM paper
+      double min_score = -1;
+      for (auto kv : query_result) {
+        FrameId fid = kv.first.frame_id;
+        double score = kv.second;
+
+        bool is_neighbour = std::find(neighbours.begin(), neighbours.end(),
+                                      fid) != neighbours.end();
+
+        if (is_neighbour) {
+          if (min_score == -1 || score <= min_score) {
+            min_score = score;
+          }
+        }
+      }
+      std::vector<FrameId> filtered_candidates;
+
+      for (auto kv : query_result) {
+        FrameId fid = kv.first.frame_id;
+        double score = kv.second;
+
+        bool is_direct_edge =
+            std::find(covis_candidates.begin(), covis_candidates.end(), fid) !=
+            covis_candidates.end();
+
+        if (score <= min_score && !is_direct_edge) {
+          if (loop_candidates.find(fid) != loop_candidates.end()) {
+            loop_candidates[fid] &= true;
+          } else {
+            loop_candidates[fid] = true;
+          }
+        } else {
+          if (loop_candidates.find(fid) != loop_candidates.end()) {
+            loop_candidates[fid] &= false;
+          }
+        }
+      }
+      loop_consistency_timeout--;
+      if (loop_consistency_timeout == 0) {
+        loop_consistency_timeout = patience;
+        std::vector<FrameId> keysToErase;
+        for (auto kv : loop_candidates) {
+          FrameId fid = kv.first;
+          bool is_consistent = kv.second;
+          if (!is_consistent) {
+            if (loop_candidates.find(fid) != loop_candidates.end()) {
+              keysToErase.push_back(fid);
+            }
+          }
+        }
+
+        for (const FrameId& fid : keysToErase) {
+          loop_candidates.erase(fid);
+        }
+      }
+    }
+    /**
+     *  From loop candidates detect loop
+     *  1) Find similarity transform between current KF and loop candidates
+     *  2) If inliers < threshold, then accept the loop candidate and discard
+     *the others 3) Convert the loop candidate to covisibility edge
+     **/
+
+    int inlier_threshold = 20;  // For RANSAC inliers
+    std::vector<FrameId> accepted_loop_cands;
+    for (auto kv : loop_candidates) {
+      FrameId fid = kv.first;
+      GraphEdge edge = covis_graph.find_edge(ckf, fid);
+
+      auto kdl_candidate = feature_corners[FrameCamId(fid, 0)];
+      MatchData loop_md;
+      // loop_md.matches = edge.desc_matches;
+
+      matchDescriptors(kdl.corner_descriptors, kdl_candidate.corner_descriptors,
+                       loop_md.matches, MATCH_THRESHOLD, DIST_2_BEST);
+      // std::cout << " Matches for Loop Candidate: " << fid << " --> "
+      //           << loop_md.matches.size() << "\n";
+      findInliersRansac(kdl, kdl_candidate, calib_cam.intrinsics[0],
+                        calib_cam.intrinsics[0], relative_pose_ransac_thresh,
+                        inlier_threshold, loop_md);
+
+      if (loop_md.inliers.size() > inlier_threshold) {
+        GraphEdge loop_edge;
+        loop_edge.type = 2;
+        loop_edge.value = fid;
+        std::cout << "Adding Loop Edge from " << ckf << " to " << fid << "\n";
+        covis_graph.add_edge(ckf, loop_edge);
+
+        Node node1, node2;
+        Edge poseEdge;
+        node1.id = ckf;
+        Sophus::SE3d se1(covis_graph.poses[ckf]);
+        node1.pose = se1;
+        nodes.push_back(node1);
+
+        node2.id = fid;
+        Sophus::SE3d se2(covis_graph.poses[fid]);
+        node2.pose = se2;
+        nodes.push_back(node2);
+
+        poseEdge.id1 = ckf;
+        poseEdge.id2 = fid;
+        poseEdge.T = node1.pose.inverse() * node2.pose;
+        poseEdge.T = md1.T_i_j;
+        edges.push_back(poseEdge);
+
+        std::cout << "Nodes and Edges for PGO added"
+                  << "\n";
+
+        /** LOOP_EDGE_CONSISTENCY: Add loop edge with neighbours of current
+         * frame**/
+        if (covis_graph.exists(ckf)) {
+          auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
+          for (auto ckf_covis_fid : ckf_covis_frames) {
+            GraphEdge covis_loop_edge;
+            covis_loop_edge.type = 2;
+            covis_loop_edge.value = fid;
+
+            covis_graph.add_edge(ckf_covis_fid.value, covis_loop_edge);
+          }
+        }
+
+        /** FEATURE: writing loop pairs to disk**/
+        if (SAVE_LOOP_PAIRS) {
+          auto ckf_image = cv::imread(images[FrameCamId(ckf, 0)]);
+          auto fid_image = cv::imread(images[FrameCamId(fid, 0)]);
+
+          // Check if the images were loaded successfully
+          if (ckf_image.empty() || fid_image.empty()) {
+            std::cout << "Failed to load the images." << std::endl;
+            return -1;
+          }
+
+          // Resize the images to have the same height
+          cv::Size targetSize(ckf_image.cols + fid_image.cols, ckf_image.rows);
+          // cv::resize(ckf_image, ckf_image, targetSize);
+          // cv::resize(fid_image, fid_image, targetSize);
+
+          // Create a new image to hold the merged result
+          cv::Mat mergedImage(targetSize.height, targetSize.width,
+                              ckf_image.type());
+
+          // Copy the first image to the left side of the merged image
+          cv::Rect roi1(cv::Rect(0, 0, ckf_image.cols, ckf_image.rows));
+          cv::Mat roickf_image(mergedImage, roi1);
+          ckf_image.copyTo(roickf_image);
+
+          // Copy the second image to the right side of the merged image
+          cv::Rect roi2(
+              cv::Rect(ckf_image.cols, 0, fid_image.cols, fid_image.rows));
+          cv::Mat roifid_image(mergedImage, roi2);
+          fid_image.copyTo(roifid_image);
+
+          // Save the merged image
+          cv::imwrite("data/loop_pairs/" + std::to_string(ckf) + "_" +
+                          std::to_string(fid) + ".jpg",
+                      mergedImage);
+        }
+        // Also add covisibility edges
+        if (covis_graph.exists(fid)) {
+          auto loop_covis_frames = covis_graph.getCovisFrames(fid);
+          for (auto loop_covis_kf : loop_covis_frames) {
+            covis_graph.add_edge(ckf, loop_covis_kf);
+            /*** QUESTION: Do I need to add the other way around too? */
+          }
+        }
+        accepted_loop_cands.push_back(fid);
+      }
+    }
+    if (loop_closure_pause && accepted_loop_cands.size() > 0) {
+      std::cout << "About to Close Loop...\n";
+      for (int k = 0; k < 1e6; k++) {
+        int lol = 101 * 101;
+      }
+    }
+    std::vector<Node> sortedNodes(nodes);
+    std::sort(sortedNodes.begin(), sortedNodes.end(),
+              [](const Node& node1, const Node& node2) {
+                return node1.id < node2.id;
+              });
+
+    const int opt_window = 3;
+    ceres::Problem problem;
+    Sophus::SE3d multi_T;
+    int edges_connected[opt_window] = {0};
+    Sophus::SE3d delta_T;
+
+    // Iterate through the nodes
+    for (std::size_t i = 0;
+         i < (sortedNodes.size() - 1) && sortedNodes.size() > 0; ++i) {
+      const Node& current_node = sortedNodes[i];
+      const int& node_id1 = current_node.id;
+      abs_pose1 = current_node.pose;
+      edges_connected[0] = node_id1;
+
+      // See the next nodes to which it has loop edges with
+      for (std::size_t j = i + 1;
+           j < (sortedNodes.size() - 1) && j <= i + opt_window; ++j) {
+        const Node& next_node = sortedNodes[j];
+        const int& node_id2 = next_node.id;
+        abs_pose2 = next_node.pose;
+        edges_connected[j] = node_id2;
+
+        // Extracting the relative transform between the nodes
+        for (const auto& edge : edges) {
+          if ((edge.id1 == node_id1 && edge.id2 == node_id2) ||
+              (edge.id1 == node_id2 && edge.id2 == node_id1)) {
+            Sophus::SE3d relative_T = edge.T;
+
+            // To get the transform T14=T12*T23*T34.
+            for (std::size_t k = 0; k < opt_window && edges_connected[k] != 0;
+                 ++k) {
+              for (const auto& edge1 : edges) {
+                if ((edge1.id1 == edges_connected[k + 1] &&
+                     edge1.id2 == edges_connected[k]) ||
+                    (edge1.id1 == edges_connected[k] &&
+                     edge1.id2 == edges_connected[k + 1])) {
+                  multi_T = multi_T * edge1.T;
+                }
+              }
+            }
+
+            // Convert to lie algebra to calculate the difference
+            Sophus::SE3d::Tangent lie_algebra_1 = relative_T.log();
+            Sophus::SE3d::Tangent lie_algebra_2 = multi_T.log();
+            Sophus::SE3d::Tangent delta_lie_algebra =
+                lie_algebra_1 - lie_algebra_2;  // Maybe do lie2 - lie1?
+            delta_T = Sophus::SE3d::exp(delta_lie_algebra);
+
+            // Optimization
+            problem.AddParameterBlock(abs_pose1.data(), 6);
+            problem.AddParameterBlock(abs_pose2.data(), 6);
+
+            problem.AddParameterBlock(delta_T.data(), 6);
+            problem.SetParameterBlockConstant(delta_T.data());
+
+            ceres::CostFunction* cost_function =
+                new ceres::AutoDiffCostFunction<PoseGraphCostFunctor, 6, 6, 6>(
+                    new PoseGraphCostFunctor(delta_T));
+            problem.AddResidualBlock(cost_function, NULL, abs_pose1.data(),
+                                     abs_pose2.data());
+
+            ceres::Solver::Options options;
+            ceres::Solver::Summary summary;
+            ceres::Solve(options, &problem, &summary);
+          }
+
+          // Landmark pose
+          Eigen::Vector3d l1_world = extractLandmarkPosition(
+              node_id1,
+              landmarks);  // Extract world coords of landmark from frame ID
+          Eigen::Vector3d l1_cam =
+              cameras[FrameCamId(node_id1, 0)].T_w_c.inverse() *
+              l1_world;  // Convert to camera frame
+          Eigen::Vector3d l1_cam_new =
+              delta_T * l1_cam;  // Multiply with delta pose
+
+          Eigen::Vector3d l2_world =
+              extractLandmarkPosition(node_id2, landmarks);
+          Eigen::Vector3d l2_cam =
+              cameras[FrameCamId(node_id2, 0)].T_w_c.inverse() * l2_world;
+          Eigen::Vector3d l2_cam_new = delta_T * l1_cam;
+
+          // Set the optimized poses
+          cameras[FrameCamId(node_id1, 0)].T_w_c = abs_pose1;
+          cameras[FrameCamId(node_id2, 0)].T_w_c = abs_pose2;
+
+          // Set poses for right camera
+          cameras[FrameCamId(node_id1, 1)].T_w_c = abs_pose1 * T_0_1;
+          cameras[FrameCamId(node_id2, 1)].T_w_c = abs_pose2 * T_0_1;
+
+          std::cout << "Poses Updated"
+                    << "\n";
+
+          // Landmark pose update
+          Eigen::Vector3d l1_world_new =
+              abs_pose1 * l1_cam_new;  // Convert back to world frame
+          SetLandmarkPosition(
+              node_id1, landmarks,
+              l1_world_new);  // Set it into the landmark structure
+          Eigen::Vector3d l2_world_new = abs_pose2 * l2_cam_new;
+          SetLandmarkPosition(node_id2, landmarks, l2_world_new);
+
+          std::cout << "Landmarks updated"
+                    << "\n";
+        }
+      }
+    }
+
+    if (!opt_running && opt_finished) {
+      for (auto loop_fid : accepted_loop_cands) {
+        // Move shared landmark observations from current keyframe to the loop
+        // candidate
+        for (auto& lm : landmarks) {
+          auto track_id = lm.first;
+          auto& landmark =
+              lm.second;  // Use a reference to directly modify the landmark
+
+          // Check if the landmark has observations in both ckf and loop_fid
+          // with the same FeatureId
+          auto it_ckf_left = landmark.obs.find(FrameCamId(ckf, 0));
+          auto it_ckf_right = landmark.obs.find(FrameCamId(ckf, 1));
+          auto it_loop_left = landmark.obs.find(FrameCamId(loop_fid, 0));
+          auto it_loop_right = landmark.obs.find(FrameCamId(loop_fid, 1));
+
+          if (it_ckf_left != landmark.obs.end() &&
+              it_ckf_right != landmark.obs.end() &&
+              it_loop_left != landmark.obs.end() &&
+              it_loop_right != landmark.obs.end() &&
+              it_ckf_left->second == it_loop_left->second &&
+              it_ckf_right->second == it_loop_right->second) {
+            // Move the observations from ckf to loop_fid landmark
+            auto current_obs_left = it_ckf_left->second;
+            auto current_obs_right = it_ckf_right->second;
+
+            landmark.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
+            landmark.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
+
+            // Remove the observations from ckf landmark
+            landmark.obs.erase(it_ckf_left);
+            landmark.obs.erase(it_ckf_right);
+          }
+        }
+        // optimize();  // Call BA with updated poses from PGO and landmarks
+        // from LoopClosure
+      }
+    }
+    /***********************************************************/
+
+    // Update camera trajectories vector
+    pred_positions.push_back(cameras[FrameCamId(ckf, 0)].T_w_c.translation());
+
     // update image views
     change_display_to_image(fcidl);
     change_display_to_image(fcidr);
@@ -914,6 +1561,26 @@ bool next_step() {
 
     current_frame++;
     return true;
+  }
+}
+
+Eigen::Vector3d extractLandmarkPosition(FrameId frame_id, Landmarks landmarks) {
+  for (const auto& landmark : landmarks) {
+    Landmark landmarkData = landmark.second;
+    auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
+    if (it != landmarkData.obs.end()) {
+      return landmarkData.p;
+    }
+  }
+}
+void SetLandmarkPosition(FrameId frame_id, Landmarks landmarks,
+                         Eigen::Vector3d pose) {
+  for (const auto& landmark : landmarks) {
+    Landmark landmarkData = landmark.second;
+    auto it = landmarkData.obs.find(FrameCamId(frame_id, 0));
+    if (it != landmarkData.obs.end()) {
+      landmarkData.p = pose;
+    }
   }
 }
 
@@ -981,7 +1648,9 @@ void optimize() {
   // Fix oldest two cameras to fix SE3 and scale gauge. Making the whole second
   // camera constant is a bit suboptimal, since we only need 1 DoF, but it's
   // simple and the initial poses should be good from calibration.
+  // std::cout << kf_frames.size() << "\n";
   FrameId fid = *(kf_frames.begin());
+
   // std::cout << "fid " << fid << std::endl;
 
   // Prepare bundle adjustment
@@ -1003,7 +1672,6 @@ void optimize() {
 
     bundle_adjustment(feature_corners, ba_options, fixed_cameras, calib_cam_opt,
                       cameras_opt, landmarks_opt);
-
     opt_finished = true;
     opt_running = false;
   }));

@@ -62,13 +62,9 @@ struct ReprojectionCostFunctor {
         AbstractCamera<T>::from_data(cam_model, sIntr);
 
     // TODO SHEET 2: implement the rest of the functor
-
-    //  Eigen::Vector3d p_c = T_i_c.inverse() * T_w_i.inverse() * p_3d;
-    //  Eigen::Vector2d p_c1 = cam->project(p_c);
-    //  residuals = p_2d - p_c1;
-
-    residuals = (p_2d)-cam->project(T_i_c.inverse() * T_w_i.inverse() * p_3d);
-
+    Eigen::Matrix<T, 3, 1> p_3d_cam;
+    p_3d_cam = T_i_c.inverse() * T_w_i.inverse() * p_3d.cast<T>();
+    residuals = p_2d.cast<T>() - cam->project(p_3d_cam);
     return true;
   }
 
@@ -94,13 +90,49 @@ struct BundleAdjustmentReprojectionCostFunctor {
         AbstractCamera<T>::from_data(cam_model, sIntr);
 
     // TODO SHEET 4: Compute reprojection error
-    residuals = (p_2d)-cam->project(T_w_c.inverse() * p_3d_w);
+
+    // Cam -> image -> residual
+    auto projected_pt = cam->project(T_w_c.inverse() * p_3d_w);
+    residuals = projected_pt - p_2d;
 
     return true;
   }
 
   Eigen::Vector2d p_2d;
   std::string cam_model;
+};
+
+struct PoseGraphCostFunctor {
+  PoseGraphCostFunctor(const Sophus::SE3d& measured_relative_pose)
+      : measured_relative_pose_(measured_relative_pose) {}
+
+  template <typename T>
+  bool operator()(const T* const T_w_0, const T* const T_w_1,
+                  T* residuals) const {
+    // Convert the input variables (T_w_0 and T_w_1) to Sophus SE3d
+    // transformations
+    Sophus::SE3<T> se3_T_w_0 =
+        Sophus::SE3<T>::exp(Eigen::Map<const Eigen::Matrix<T, 6, 1>>(T_w_0));
+    Sophus::SE3<T> se3_T_w_1 =
+        Sophus::SE3<T>::exp(Eigen::Map<const Eigen::Matrix<T, 6, 1>>(T_w_1));
+
+    // Compute the residual: (T_w_0.inverse() * T_w_1) *
+    // measured_relative_pose_.inverse()
+    Sophus::SE3<T> residual =
+        (se3_T_w_0.inverse() * se3_T_w_1) *
+        measured_relative_pose_.inverse().template cast<T>();
+
+    // Convert the residual to Lie algebra vector
+    Eigen::Matrix<T, 6, 1> residual_lie_algebra = residual.log();
+
+    // Copy the residual to the output array
+    for (int i = 0; i < 6; ++i) {
+      residuals[i] = residual_lie_algebra[i];
+    }
+
+    return true;
+  }
+  Sophus::SE3d measured_relative_pose_;
 };
 
 }  // namespace visnav

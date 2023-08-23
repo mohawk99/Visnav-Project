@@ -120,7 +120,6 @@ struct KeypointsData {
   /// FeatureId)
   std::vector<std::bitset<256>> corner_descriptors;
 };
-
 /// feature corners is a collection of { imageId => KeypointsData }
 using Corners = tbb::concurrent_unordered_map<FrameCamId, KeypointsData>;
 
@@ -310,6 +309,135 @@ using BowDBInverseIndex =
 /// Inverse index used in Bow database. Suited for concurrent computation.
 using BowDBInverseIndexConcurrent = tbb::concurrent_unordered_map<
     WordId, tbb::concurrent_vector<std::pair<FrameCamId, WordValue>>>;
+
+/****
+ * Implement the CovisGraph class
+ *
+ *
+ */
+
+
+struct Node {
+    int id;                 // KF
+    // Eigen::Matrix4d pose;
+    Sophus::SE3d pose;   // Camera pose 
+};
+
+struct Edge {
+    int id1;               // ID of the first KF connected by the edge
+    int id2;               // ID of the second KF connected by the edge
+    // Eigen::Matrix4d T;
+    Sophus::SE3d T;     // Relative transformation matrix
+};
+
+struct GraphEdge {
+  int type;       // 1 for Covis, 2 for Loop
+  float weight;   // typically inliers
+  FrameId value;  // The covis/loop candidate frame
+  std::vector<std::pair<FeatureId, FeatureId>>
+      desc_matches;  // Matches between frames
+};
+
+class CoVisGraph {
+ private:
+  bool temp;
+
+ public:
+  std::map<FrameId, std::vector<GraphEdge>> edges;  // Rethink
+  std::map<FrameId, Eigen::Matrix4d> poses;  // For plotting camera centers
+
+  CoVisGraph();
+  ~CoVisGraph();
+
+  void add_edge(FrameId anchor_kf, GraphEdge edge);
+  void add_pose(FrameId kf, Eigen::Matrix4d edge);
+  std::vector<GraphEdge> getCovisFrames(FrameId key);
+  std::vector<FrameId> find_neighbours(FrameId key, int window);
+  void extendFrameIds(std::vector<FrameId>& originalVector,
+                      std::vector<GraphEdge>& extensionVector);
+  bool exists(FrameId key);
+  GraphEdge find_edge(FrameId from, FrameId to);
+};
+
+CoVisGraph::CoVisGraph() {}
+
+CoVisGraph::~CoVisGraph() {}
+
+GraphEdge CoVisGraph::find_edge(FrameId from, FrameId to) {
+  if (CoVisGraph::exists(from)) {
+    std::vector<GraphEdge>& edgeList = edges[from];
+    for (const GraphEdge& edge : edgeList) {
+      if (edge.value == to) {
+        return edge;
+      }
+    }
+  }
+
+  // If the edge is not found, return an empty GraphEdge
+  GraphEdge empty;
+  empty.value = -1;
+  return empty;
+}
+
+void CoVisGraph::add_edge(FrameId key, GraphEdge value) {
+  // Check if the key already exists
+  auto it = edges.find(key);
+  if (it != edges.end()) {
+    // Key already exists, append the value to the existing vector
+    it->second.push_back(value);
+  } else {
+    // Key doesn't exist, create a new vector and assign the value
+    std::vector<GraphEdge> newValue;
+    newValue.push_back(value);
+    edges[key] = newValue;
+  }
+}
+
+void CoVisGraph::extendFrameIds(std::vector<FrameId>& originalVector,
+                                std::vector<GraphEdge>& extensionVector) {
+  for (auto edge : extensionVector) {
+    originalVector.push_back(edge.value);
+  }
+}
+
+void CoVisGraph::add_pose(FrameId key, Eigen::Matrix4d value) {
+  // Check if the key already exists
+  auto it = poses.find(key);
+  if (it != poses.end()) {
+    std::cout << "[add_pose] [warning] Overwriting pose of " << key << "\n";
+    poses.emplace(std::make_pair(key, value));
+  } else {
+    poses.emplace(std::make_pair(key, value));
+  }
+}
+
+std::vector<FrameId> CoVisGraph::find_neighbours(FrameId key, int window) {
+  std::vector<FrameId> neighbours;
+  int timeout = window;
+  if (CoVisGraph ::exists(key)) {
+    std::vector<GraphEdge> key_edges = edges.at(key);
+    extendFrameIds(neighbours, key_edges);
+    for (auto v : key_edges) {
+      if (CoVisGraph ::exists(v.value)) {
+        extendFrameIds(
+            neighbours,
+            edges.at(v.value));  // ORB-SLAM adds neighbours ~ 30, but
+                                 // here only 1-level is considered
+      }
+    }
+  }
+  return neighbours;
+}
+
+std::vector<GraphEdge> CoVisGraph::getCovisFrames(FrameId key) {
+  // std::cout << "Returning key: " << key << "\n";
+  return edges.at(key);
+}
+
+bool CoVisGraph::exists(FrameId key) {
+  auto it = edges.find(key);
+  return it != edges.end();
+}
 
 }  // namespace visnav
 

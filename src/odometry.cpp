@@ -70,6 +70,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <visnav/bow_voc.h>
 
 #include <opencv2/opencv.hpp>
+#include <mutex>
 
 using namespace visnav;
 
@@ -249,7 +250,8 @@ pangolin::Var<double> reprojection_error_huber_pixel("hidden.ba_huber_width",
 // if you enable this, next_step is called repeatedly until completion
 pangolin::Var<bool> continue_next("ui.continue_next", false, true);
 
-pangolin::Var<bool> Loop_Closure("ui.Loop_Closure", false, true);
+pangolin::Var<bool> loop_closure_pause("ui.loop_closure_pause", false, true);
+
 
 using Button = pangolin::Var<std::function<void(void)>>;
 
@@ -265,12 +267,22 @@ int main(int argc, char** argv) {
   bool show_gui = true;
   std::string dataset_path = "data/V1_01_easy/mav0";
   std::string cam_calib = "opt_calib.json";
+  std::string sensor = "vicon0";
 
   CLI::App app{"Visual odometry."};
 
   app.add_option("--show-gui", show_gui, "Show GUI");
+
+  app.add_option("--save-loop-pairs", SAVE_LOOP_PAIRS,
+                 "Visualize and save loop pairs to disk");
+
   app.add_option("--dataset-path", dataset_path,
                  "Dataset path. Default: " + dataset_path);
+
+  app.add_option("--sensor", sensor,
+                 "Name of the sensor used to record data (e.g. V1: vicon0, MH: "
+                 "leica0). Default: " +
+                     sensor);
   app.add_option("--cam-calib", cam_calib,
                  "Path to camera calibration. Default: " + cam_calib);
 
@@ -375,6 +387,8 @@ int main(int argc, char** argv) {
             .SetHandler(new pangolin::Handler3D(camera));
     main_view.AddDisplay(display3D);
 
+    // Add the text to the popup window
+
     while (!pangolin::ShouldQuit()) {
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -454,9 +468,25 @@ int main(int argc, char** argv) {
     }
   }
   std::cout << "[EVALUATION] Calculating ATE. . . \n";
-  parseCSV(dataset_path + "/leica0/data.csv", gt_timestamps, gt_positions);
+  parseCSV(dataset_path + "/" + sensor + "/data.csv", gt_timestamps,
+           gt_positions);
   double ate_error =
       alignSVD(gt_timestamps, pred_positions, gt_timestamps, gt_positions);
+
+  std::ofstream outputFile(dataset_path + "/ATE.txt");
+
+  if (outputFile.is_open()) {
+    outputFile << ate_error;
+    outputFile.close();
+  } else {
+    std::cout << "Failed to write ATE to disk" << std::endl;
+    return 1;
+  }
+
+  std::string pred_csv_path = dataset_path + "/predicted_positions.csv";
+  std::string gt_csv_path = dataset_path + "/gt_positions.csv";
+  writeDataToCSV(gt_timestamps, pred_positions, pred_csv_path);
+  writeDataToCSV(gt_timestamps, gt_positions, gt_csv_path);
   return 0;
 }
 
@@ -1238,13 +1268,15 @@ bool next_step() {
 
         /** LOOP_EDGE_CONSISTENCY: Add loop edge with neighbours of current
          * frame**/
-        auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
-        for (auto ckf_covis_fid : ckf_covis_frames) {
-          GraphEdge covis_loop_edge;
-          covis_loop_edge.type = 2;
-          covis_loop_edge.value = fid;
+        if (covis_graph.exists(ckf)) {
+          auto ckf_covis_frames = covis_graph.getCovisFrames(ckf);
+          for (auto ckf_covis_fid : ckf_covis_frames) {
+            GraphEdge covis_loop_edge;
+            covis_loop_edge.type = 2;
+            covis_loop_edge.value = fid;
 
-          covis_graph.add_edge(ckf_covis_fid.value, covis_loop_edge);
+            covis_graph.add_edge(ckf_covis_fid.value, covis_loop_edge);
+          }
         }
 
         /** FEATURE: writing loop pairs to disk**/
@@ -1294,10 +1326,11 @@ bool next_step() {
         accepted_loop_cands.push_back(fid);
       }
     }
-    continue_next = false;
-    if(continue_next == false && Loop_Closure==false){
-        return false;
-        std::cout << "Loop Detected!" << std::endl;
+    if (loop_closure_pause && accepted_loop_cands.size() > 0) {
+      std::cout << "About to Close Loop...\n";
+      for (int k = 0; k < 1e6; k++) {
+        int lol = 101 * 101;
+      }
     }
     std::vector<Node> sortedNodes(nodes);
     std::sort(sortedNodes.begin(), sortedNodes.end(),
@@ -1413,34 +1446,7 @@ bool next_step() {
       }
     }
 
-    /** LOOPCLOSURE: **/
-    // if (!opt_running && opt_finished) {
-    //   for (auto loop_fid : accepted_loop_cands) {
-    //     // Move all of landmark observations from current frame to the loop
-    //     // candidate
-    //     for (auto& lm : landmarks) {
-    //       auto track_id = lm.first;
-    //       auto landmark = lm.second;
-    //       auto lm_obs = landmark.obs;
 
-    //       // Find the observations in the current KF.
-    //       if (lm_obs.find(FrameCamId(ckf, 0)) != lm_obs.end() &&
-    //           lm_obs.find(FrameCamId(ckf, 1)) != lm_obs.end()) {
-    //         auto current_obs_left = lm_obs[FrameCamId(ckf, 0)];
-    //         auto current_obs_right = lm_obs[FrameCamId(ckf, 1)];
-
-    //         lm.second.obs[FrameCamId(loop_fid, 0)] = current_obs_left;
-    //         lm.second.obs[FrameCamId(loop_fid, 1)] = current_obs_right;
-
-    //         lm.second.obs.erase(FrameCamId(ckf, 0));
-    //         lm.second.obs.erase(FrameCamId(ckf, 1));
-    //       }
-    //     }
-    //     optimize();  // Call BA with updated poses from PGO and landmarks
-    //     from
-    //                  // LoopClosure
-    //   }
-    // }
     if (!opt_running && opt_finished) {
       for (auto loop_fid : accepted_loop_cands) {
         // Move shared landmark observations from current keyframe to the loop
@@ -1475,11 +1481,10 @@ bool next_step() {
             landmark.obs.erase(it_ckf_right);
           }
         }
-        optimize();  // Call BA with updated poses from PGO and landmarks from
-                     // LoopClosure
+        // optimize();  // Call BA with updated poses from PGO and landmarks
+        // from LoopClosure
       }
     }
-
     /***********************************************************/
 
     // Update camera trajectories vector

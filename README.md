@@ -8,4 +8,4 @@ The authors are Vladyslav Usenko, Nikolaus Demmel, David Schubert and Zhakshylyk
 
 You can find [setup instructions here.](wiki/Setup.md)
 
-The project is based on classical computer vision technique ORB SLAM and was done in an attempt to understand its intricate workings. Also a project implementing loop closure was done to improve the algorithms performance. Majority of the work can be found in "odometry.cpp"
+The project is based on classical computer vision technique ORB SLAM and was done in an attempt to understand its intricate workings. The project included implementing loop closure, which was done to improve the algorithms performance. Majority of the work can be found in "src/odometry.cpp"

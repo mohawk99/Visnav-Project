@@ -6,15 +6,6 @@ It was originally developed for the winter term 2018. The latest iteration is su
 
 The authors are Vladyslav Usenko, Nikolaus Demmel, David Schubert and Zhakshylyk Nurlanov.
 
-### License
-
-The code for this practical course is provided under a BSD 3-clause license. See the LICENSE file for details.
-
-Parts of the code (`include/tracks.h`, `include/union_find.h`) are adapted from OpenMVG and distributed under an MPL 2.0 licence.
-
-Parts of the code (`include/local_parameterization_se3.hpp`, `src/test_ceres_se3.cpp`) are adapted from Sophus and distributed under an MIT license.
-
-Note also the different licenses of thirdparty submodules.
-
-
 You can find [setup instructions here.](wiki/Setup.md)
+
+The project is based on classical computer vision technique ORB SLAM and was done in an attempt to understand its intricate workings. Also a project implementing loop closure was done to improve the algorithms performance. Majority of the work can be found in "odometry.cpp"
